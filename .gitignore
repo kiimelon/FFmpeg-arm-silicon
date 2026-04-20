@@ -1,0 +1,16 @@
+src/*
+build/*
+local/*
+logs/*
+
+!src/.gitkeep
+!build/.gitkeep
+!local/.gitkeep
+!logs/.gitkeep
+
+*.tar.xz
+*.tar.gz
+*.log
+
+.DS_Store
+
