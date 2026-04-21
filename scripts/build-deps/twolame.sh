@@ -27,7 +27,7 @@ export LIBTOOLIZE="$TOOLS_DIR/libtoolize"
 unset LIBTOOL
 
 if [ ! -x "./configure" ]; then
-  ./autogen.sh 2>&1 | tee "$LOG_FILE"
+  NOCONFIGURE=1 ./autogen.sh 2>&1 | tee "$LOG_FILE"
 else
   : > "$LOG_FILE"
 fi

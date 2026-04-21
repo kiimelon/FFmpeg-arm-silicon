@@ -106,7 +106,7 @@ for dep in "${deps[@]}"; do
 
     if is_built "$dep"; then
         echo | tee -a "$LOG_FILE"
-        echo "========== [SKIP] $dep ==========" | tee -a "$LOG_FILE"
+        echo "*** SKIP: $dep ***" | tee -a "$LOG_FILE"
         echo "already installed under $PREFIX" | tee -a "$LOG_FILE"
         echo | tee -a "$LOG_FILE"
         continue
@@ -118,16 +118,16 @@ for dep in "${deps[@]}"; do
     }
 
     echo | tee -a "$LOG_FILE"
-    echo "==============================" | tee -a "$LOG_FILE"
-    echo "RUNNING: $dep" | tee -a "$LOG_FILE"
-    echo "==============================" | tee -a "$LOG_FILE"
+    echo "*** RUNNING: $dep ***" | tee -a "$LOG_FILE"
+    echo | tee -a "$LOG_FILE"
 
     bash "$SCRIPT_PATH" 2>&1 | tee -a "$LOG_FILE"
 
     echo | tee -a "$LOG_FILE"
-    echo "========== [PASS] $dep ==========" | tee -a "$LOG_FILE"
+    echo "*** PASS: $dep ***" | tee -a "$LOG_FILE"
     echo "log: $LOGS/$dep-build.log" | tee -a "$LOG_FILE"
     echo | tee -a "$LOG_FILE"
+    sleep 3
 done
 
 echo | tee -a "$LOG_FILE"
