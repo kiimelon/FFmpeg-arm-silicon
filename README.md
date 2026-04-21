@@ -27,10 +27,10 @@ At the moment, this project targets **macOS 11.0+ on Apple Silicon** and is bein
 - `scripts/build-deps/` — per-library build scripts
 - `src/` — third-party source trees *
 - `build/` — temporary build output *
-- `local/` — local install prefix *
+-  `local/` — local install prefix *
 - `logs/` — build logs *
 
-* local-only directories, not committed to the repository
+\* local-only directories, not committed to the repository
 
 ## Dependency Groups (currently)
 
@@ -44,7 +44,7 @@ At the moment, this project targets **macOS 11.0+ on Apple Silicon** and is bein
 | Audio and resampling extras | `twolame`, `libsoxr` |
 | Utility and support libs | `snappy`, `zimg`, `libxml2`, `libzmq` |
 
-* Third-party libraries fetched by the build scripts keep their own licenses.
+\* Third-party libraries fetched by the build scripts keep their own licenses.
 
 ## Build Notes
 

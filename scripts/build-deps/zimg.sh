@@ -12,10 +12,17 @@ cd "$SRC_DIR"
 
 make distclean >/dev/null 2>&1 || true
 
+# ensure submodules are present
+git submodule sync --recursive 2>&1 | tee "$LOG_FILE" || true
+
+rm -rf graphengine test/extra/googletest
+
+git submodule update --init --recursive 2>&1 | tee -a "$LOG_FILE"
+
 if [ ! -x "./configure" ]; then
-  ./autogen.sh 2>&1 | tee "$LOG_FILE"
+  ./autogen.sh 2>&1 | tee -a "$LOG_FILE"
 else
-  : > "$LOG_FILE"
+  : > /dev/null
 fi
 
 ./configure \
