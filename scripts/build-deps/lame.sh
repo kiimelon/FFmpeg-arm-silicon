@@ -12,10 +12,6 @@ cd "$SRC_DIR"
 
 make distclean >/dev/null 2>&1 || true
 
-export LIBTOOL=glibtool
-export LIBTOOLIZE=glibtoolize
-export ACLOCAL_PATH="$(brew --prefix libtool)/share/aclocal${ACLOCAL_PATH:+:$ACLOCAL_PATH}"
-
 if [ ! -x "./configure" ]; then
   ./autogen.sh 2>&1 | tee "$LOG_FILE"
 else
@@ -26,6 +22,13 @@ fi
   --prefix="$PREFIX" \
   --host=arm-apple-darwin \
   2>&1 | tee -a "$LOG_FILE"
+
+# LAME library is what FFmpeg needs.
+# If configure generated a recursive build that includes frontend,
+# remove frontend from the top-level recursive dirs to avoid frontend-only failures.
+if [ -f Makefile ]; then
+  sed -i '' 's/ frontend / /g; s/ frontend$//g; s/^frontend //g' Makefile
+fi
 
 make $MAKEFLAGS 2>&1 | tee -a "$LOG_FILE"
 make install 2>&1 | tee -a "$LOG_FILE"

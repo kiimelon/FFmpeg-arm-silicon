@@ -1,17 +1,23 @@
 # FFmpeg-arm-silicon
 
-A local FFmpeg build project for **macOS Apple Silicon (`arm64`)**.
+[Evermeet](https://evermeet.cx/ffmpeg/) is a useful reference for prebuilt FFmpeg binaries, but its main page is currently focused on macOS 64-bit Intel builds. That is part of why I started this project.
 
-This project is focused on building FFmpeg and its dependency stack locally on Apple Silicon Macs.
+I wanted a source-based FFmpeg build, and a cleaner, easier way to build FFmpeg locally on Apple Silicon.
 
-For prebuilt macOS binaries and a much broader upstream-style feature set, see Evermeet’s FFmpeg builds.
+The long-term goal of this project is to provide directly usable FFmpeg binaries for Apple Silicon. It is not there yet, but that is the direction.
 
-## Goal
+For now, this project can already serve as a practical reference for anyone who wants to see how FFmpeg is being built step by step on Apple Silicon.
 
-- Build `ffmpeg`, `ffprobe`, and eventually `ffplay`
-- Target **Apple Silicon (`arm64`)**
-- Build dependencies locally inside this project
-- Move toward a richer dependency set inspired by Evermeet’s FFmpeg configuration
+At the moment, this project targets **macOS 11.0+ on Apple Silicon** and is being tested through repeated clean builds on my own machines.
+
+
+## Current Progress
+
+- Stage 1: initialization ✅  
+  the repository structure is set up, the shared build environment is ready, and dependency sources can be fetched into the project
+
+- Stage 2: dependency build system ✅  
+  dependency scripts are in place, libraries can be built into the local prefix, and the current dependency set has been tested successfully on Apple Silicon
 
 ## Project Structure
 
@@ -24,33 +30,39 @@ For prebuilt macOS binaries and a much broader upstream-style feature set, see E
 - `local/` — local install prefix *
 - `logs/` — build logs *
 
-* indicates local-only directories that are not committed to the repository.
+* local-only directories, not committed to the repository
 
-## Dependencies
+## Dependency Groups (currently)
 
-### Core media stack
-
-| Category | Libraries |
+| Group | Libraries * |
 |---|---|
 | SDL | `sdl2` |
 | Subtitle chain | `freetype`, `fribidi`, `harfbuzz`, `libass` |
 | Video chain | `x264`, `x265`, `libvpx`, `dav1d` |
 | Audio chain | `ogg`, `opus`, `vorbis`, `lame` |
-
-### Extended dependency set
-
-| Category | Libraries |
-|---|---|
 | Image and media extras | `libwebp`, `openjpeg`, `libtheora` |
 | Audio and resampling extras | `twolame`, `libsoxr` |
 | Utility and support libs | `snappy`, `zimg`, `libxml2`, `libzmq` |
 
-## Status
+* Third-party libraries fetched by the build scripts keep their own licenses.
 
-- Stage 1: initialization ✅
-- Stage 2: dependency build system ✅
-- Current state: the current dependency set is building successfully on Apple Silicon
+## Build Notes
 
-## Current Scope
+### Fixed
 
-This repository is for **local source-based builds on macOS Apple Silicon**.
+- `libvpx`: `install_name` is fixed after install on macOS
+- `lame`: `libmp3lame.pc` is generated manually because upstream install does not provide it
+- `opus`: ARM assembly is disabled on Apple Silicon builds
+- `libtheora`: ARM assembly is disabled on Apple Silicon builds
+- `libsoxr`: CMake policy compatibility is set for newer CMake versions
+
+### Known Issues
+
+- `twolame`: behavior may differ depending on the source tree state
+- `zimg`: submodules must be initialized correctly on a clean source tree
+
+### To Verify
+
+- full dependency reproducibility across both Apple Silicon machines
+- clean-tree reproducibility for `twolame`
+- clean-tree reproducibility for `zimg`
