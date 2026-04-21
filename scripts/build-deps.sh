@@ -9,19 +9,12 @@ LOG_FILE="$LOGS/build-deps.log"
 mkdir -p "$LOGS"
 
 deps=(
-    sdl2
-    freetype
-    fribidi
-    harfbuzz
-    libass
-    x264
-    x265
-    libvpx
-    dav1d
-    ogg
-    opus
-    vorbis
-    lame
+#    sdl2
+#    freetype fribidi harfbuzz libass
+#   x264 x265 libvpx dav1d
+#    ogg opus vorbis lame
+#    snappy libsoxr libwebp openjpeg
+     zimg twolame libtheora libxml2 libzmq
 )
 
 : > "$LOG_FILE"
