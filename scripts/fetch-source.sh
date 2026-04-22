@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-source "$(dirname "$0")"/env.sh
+source "$(dirname "$0")/env.sh"
 
 mkdir -p "$SRC"
 
-fetch_git(){
+fetch_git() {
   local url="$1"
   local dir="$2"
-  local extra_args="${3:-}"
-  
+
   if [ -d "$SRC/$dir/.git" ]; then
     echo "[skip] $dir already exists"
     return 0
@@ -17,19 +16,42 @@ fetch_git(){
 
   echo "[clone] $dir"
 
-  if [ -n "$extra_args" ]; then
-    git clone $extra_args "$url" "$SRC/$dir"
+  if [ "$#" -gt 2 ]; then
+    shift 2
+    git clone "$@" "$url" "$SRC/$dir"
   else
     git clone "$url" "$SRC/$dir"
   fi
 }
 
-echo "==== fetching dependency sources ===="
+fetch_tarball() {
+  local url="$1"
+  local archive_name="$2"
+  local extracted_dir="$3"
+
+  if [ -d "$SRC/$extracted_dir" ]; then
+    echo "[skip] $extracted_dir already exists"
+    return 0
+  fi
+
+  echo "[download] $archive_name"
+  curl -L -o "$SRC/$archive_name" "$url"
+
+  echo "[extract] $archive_name"
+  tar -xf "$SRC/$archive_name" -C "$SRC"
+}
+
+echo "==== fetching sources ===="
 echo "SRC=$SRC"
 echo
 
+# Core compression libs required by freetype
+fetch_git "https://github.com/madler/zlib.git" "zlib"
+fetch_git "https://github.com/libarchive/bzip2.git" "bzip2"
+fetch_git "https://github.com/google/brotli.git" "brotli"
+
 # SDL2
-fetch_git "https://github.com/libsdl-org/SDL.git" "SDL" "--branch release-2.32.10 --depth 1"
+fetch_git "https://github.com/libsdl-org/SDL.git" "SDL" --branch release-2.32.10 --depth 1
 
 # Subtitle chain
 fetch_git "https://gitlab.freedesktop.org/freetype/freetype.git" "freetype"
@@ -62,5 +84,11 @@ fetch_git "https://github.com/sekrit-twc/zimg.git" "zimg"
 fetch_git "https://gitlab.gnome.org/GNOME/libxml2.git" "libxml2"
 fetch_git "https://github.com/zeromq/libzmq.git" "libzmq"
 
+# FFmpeg release source
+fetch_tarball \
+  "https://ffmpeg.org/releases/ffmpeg-8.1.tar.xz" \
+  "ffmpeg-8.1.tar.xz" \
+  "ffmpeg-8.1"
+
 echo
-echo "==== done fetching dependency sources ===="
+echo "==== done fetching sources ===="
