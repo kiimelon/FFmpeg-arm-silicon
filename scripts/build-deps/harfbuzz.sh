@@ -90,6 +90,10 @@ PATH="$TOOL_PATH" \
   -Dintrospection=disabled \
   -Dbenchmark=disabled \
   -Dfontations=disabled \
+  -Dgpu=disabled \
+  -Dgpu_demo=disabled \
+  -Dsubset=disabled \
+  -Dutilities=disabled \
   >> "$HARFBUZZ_LOG" 2>&1
 
 PATH="$TOOL_PATH" "$MESON_BIN" compile -C "$HARFBUZZ_BUILD_DIR" >> "$HARFBUZZ_LOG" 2>&1

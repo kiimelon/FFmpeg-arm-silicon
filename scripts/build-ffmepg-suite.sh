@@ -39,6 +39,14 @@ REQUIRED_PKG_PAIRS=(
   "libzmq:libzmq"
 )
 
+log_header() {
+  local title="$1"
+  echo
+  echo "=================================================="
+  echo "$title"
+  echo "=================================================="
+}
+
 echo "==> Building FFmpeg suite"
 echo "Source : $FFMPEG_SRC"
 echo "Prefix : $PREFIX"
@@ -50,16 +58,21 @@ if [ ! -d "$FFMPEG_SRC" ]; then
   exit 1
 fi
 
+mkdir -p "$LOGS"
+: > "$CONFIG_LOG"
+: > "$MAKE_LOG"
+: > "$INSTALL_LOG"
+
 cd "$FFMPEG_SRC"
 
 make distclean >/dev/null 2>&1 || true
 
-echo "==> Checking required dependencies..."
+log_header "Checking required dependencies"
 
 for pair in "${REQUIRED_PKG_PAIRS[@]}"; do
   name="${pair%%:*}"
   pkg="${pair#*:}"
-  echo "   - $name -> $pkg"
+  echo " - $name -> $pkg"
   if ! "$PKG_CONFIG_BIN" --exists "$pkg"; then
     echo "ERROR: missing pkg-config package for $name: $pkg"
     exit 1
@@ -96,6 +109,11 @@ done
   echo "ffmpeg configure will use pkg-config: $PKG_CONFIG_BIN"
 } > "$CONFIG_LOG"
 
+log_header "Running configure"
+
+PKG_CONFIG="$PKG_CONFIG_BIN" \
+PKG_CONFIG_PATH="$PKG_CONFIG_PATH" \
+PKG_CONFIG_LIBDIR="$PKG_CONFIG_LIBDIR" \
 ./configure \
   --prefix="$PREFIX" \
   --cc="$CC" \
@@ -134,10 +152,16 @@ done
   --enable-libzimg \
   --enable-libxml2 \
   --enable-libzmq \
-  >> "$CONFIG_LOG" 2>&1
+  2>&1 | tee -a "$CONFIG_LOG"
 
-make > "$MAKE_LOG" 2>&1
-make install > "$INSTALL_LOG" 2>&1
+log_header "Running make"
 
-echo "==> Build finished"
+make 2>&1 | tee "$MAKE_LOG"
+
+log_header "Running make install"
+
+make install 2>&1 | tee "$INSTALL_LOG"
+
+log_header "Build finished"
+
 ls -l "$PREFIX/bin/ffmpeg" "$PREFIX/bin/ffprobe" "$PREFIX/bin/ffplay"

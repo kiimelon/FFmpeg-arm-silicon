@@ -11,9 +11,9 @@ export ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Standard project directories.
 export SRC="$ROOT/src"
-export BUILD="$ROOT/build"
-export PREFIX="$ROOT/local"
-export LOGS="$ROOT/logs"
+export BUILD="$ROOT/build-static"
+export PREFIX="$ROOT/local-static"
+export LOGS="$ROOT/logs-static"
 
 # Ensure required directories exist.
 mkdir -p "$SRC" "$BUILD" "$PREFIX" "$LOGS"
