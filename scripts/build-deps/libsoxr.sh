@@ -2,114 +2,59 @@
 set -euo pipefail
 
 source "$(dirname "$0")/../env.sh"
-
-if [ -z "${CMAKE_BIN:-}" ]; then
-  echo "ERROR: cmake not found in ORIGINAL_PATH"
-  exit 1
-fi
-
-if [ -z "${PKG_CONFIG_BIN:-}" ]; then
-  echo "ERROR: pkg-config not found in ORIGINAL_PATH"
-  exit 1
-fi
+source "$(dirname "$0")/../build-static-common.sh"
 
 NAME="libsoxr"
 SRC_DIR="$SRC/$NAME"
 BUILD_DIR="$BUILD/$NAME"
 LOG_FILE="$LOGS/$NAME-build.log"
 
-echo "==> Building libsoxr (CMake)"
+banner_start
+
+echo "==> Building $NAME (cmake)"
 echo "Source : $SRC_DIR"
 echo "Build  : $BUILD_DIR"
 echo "Prefix : $PREFIX"
 echo "Log    : $LOG_FILE"
 
-if [ ! -d "$SRC_DIR" ]; then
-  echo "ERROR: source directory not found: $SRC_DIR"
-  exit 1
-fi
+require_file "$SRC_DIR/CMakeLists.txt" "source directory not found or invalid"
 
+mkdir -p "$LOGS"
 rm -rf "$BUILD_DIR"
-mkdir -p "$BUILD_DIR" "$LOGS"
+mkdir -p "$BUILD_DIR"
 
-{
-  echo "ROOT=$ROOT"
-  echo "SRC=$SRC"
-  echo "BUILD=$BUILD"
-  echo "PREFIX=$PREFIX"
-  echo "PATH=$PATH"
-  echo "ORIGINAL_PATH=$ORIGINAL_PATH"
-  echo "CC=$CC"
-  echo "CXX=$CXX"
-  echo "CFLAGS=$CFLAGS"
-  echo "CXXFLAGS=$CXXFLAGS"
-  echo "LDFLAGS=$LDFLAGS"
-  echo "MAKEFLAGS=$MAKEFLAGS"
-  echo "CMAKE_BIN=$CMAKE_BIN"
-  echo "PKG_CONFIG_BIN=$PKG_CONFIG_BIN"
-  echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
-  echo "PKG_CONFIG_LIBDIR=$PKG_CONFIG_LIBDIR"
-  echo
-  echo "===== cmake configure ====="
-} > "$LOG_FILE"
+log_build_env "$LOG_FILE"
 
-"$CMAKE_BIN" -S "$SRC_DIR" -B "$BUILD_DIR" \
-  -DCMAKE_BUILD_TYPE=Release \
+cmake_configure \
+  -S "$SRC_DIR" -B "$BUILD_DIR" \
   -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOSX_DEPLOYMENT_TARGET" \
-  -DCMAKE_OSX_ARCHITECTURES="$ARCH" \
-  -DCMAKE_C_COMPILER="$CC" \
-  -DCMAKE_CXX_COMPILER="$CXX" \
-  -DCMAKE_C_FLAGS="$CFLAGS" \
-  -DCMAKE_CXX_FLAGS="$CXXFLAGS" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DBUILD_SHARED_LIBS=OFF \
-  -DBUILD_EXAMPLES=OFF \
-  -DBUILD_TESTING=OFF \
+  -DBUILD_TESTS=OFF \
   -DWITH_OPENMP=OFF \
   -DWITH_LSR_BINDINGS=OFF \
-  >> "$LOG_FILE" 2>&1
+  -DCMAKE_PREFIX_PATH="$PREFIX" \
+  -DCMAKE_FIND_ROOT_PATH="$PREFIX"
 
-{
-  echo
-  echo "===== build ====="
-} >> "$LOG_FILE"
-
-"$CMAKE_BIN" --build "$BUILD_DIR" --parallel "$NCPU" >> "$LOG_FILE" 2>&1
-
-{
-  echo
-  echo "===== install ====="
-} >> "$LOG_FILE"
-
-"$CMAKE_BIN" --install "$BUILD_DIR" >> "$LOG_FILE" 2>&1
-
-echo "==> Verifying libsoxr install"
-
-find "$PREFIX/lib" -maxdepth 1 -name 'libsoxr*' -print | sort
-
-if [ ! -f "$PREFIX/lib/libsoxr.a" ]; then
-  echo "ERROR: static library not found: $PREFIX/lib/libsoxr.a"
-  exit 1
-fi
-
-if [ ! -f "$PREFIX/include/soxr.h" ]; then
-  echo "ERROR: header not found: $PREFIX/include/soxr.h"
-  exit 1
-fi
-
-if [ ! -f "$PREFIX/lib/pkgconfig/soxr.pc" ]; then
-  echo "ERROR: pkg-config file not found: $PREFIX/lib/pkgconfig/soxr.pc"
-  exit 1
-fi
+cmake_build
+cmake_install
 
 echo
-echo "===== pkg-config verify ====="
-"$PKG_CONFIG_BIN" --modversion soxr
-"$PKG_CONFIG_BIN" --static --libs soxr
+echo "==> no .la residue expected for $NAME"
 
-echo
-echo "==> libsoxr installed successfully"
-ls -l "$PREFIX/lib/libsoxr.a"
-ls -l "$PREFIX/include/soxr.h"
-ls -l "$PREFIX/lib/pkgconfig/soxr.pc"
+step "verify installed files"
+find "$PREFIX/lib" -maxdepth 1 \( -name 'libsoxr*' -o -name 'soxr.pc' \) -print | sort
+
+require_file "$PREFIX/lib/libsoxr.a" "static library not found"
+require_file "$PREFIX/include/soxr.h" "header not found"
+require_file "$PREFIX/lib/pkgconfig/soxr.pc" "pkg-config file not found"
+
+print_pkg_version soxr
+print_pkg_static_libs soxr
+
+begin_final_verify
+print_verified_file "$PREFIX/lib/libsoxr.a"
+print_verified_file "$PREFIX/include/soxr.h"
+print_verified_file "$PREFIX/lib/pkgconfig/soxr.pc"
+
+banner_end

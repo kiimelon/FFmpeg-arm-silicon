@@ -51,7 +51,7 @@ fetch_git "https://github.com/libarchive/bzip2.git" "bzip2"
 fetch_git "https://github.com/google/brotli.git" "brotli"
 
 # SDL2
-fetch_git "https://github.com/libsdl-org/SDL.git" "SDL" --branch release-2.32.10 --depth 1
+fetch_git "https://github.com/libsdl-org/SDL.git" "sdl2" --branch release-2.32.10 --depth 1
 
 # Subtitle chain
 fetch_git "https://gitlab.freedesktop.org/freetype/freetype.git" "freetype"

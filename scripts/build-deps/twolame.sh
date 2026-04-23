@@ -2,6 +2,7 @@
 set -euo pipefail
 
 source "$(dirname "$0")/../env.sh"
+source "$(dirname "$0")/../build-static-common.sh"
 
 if [ -z "${PKG_CONFIG_BIN:-}" ]; then
   echo "ERROR: pkg-config not found in ORIGINAL_PATH"
@@ -11,132 +12,143 @@ fi
 NAME="twolame"
 SRC_DIR="$SRC/$NAME"
 LOG_FILE="$LOGS/$NAME-build.log"
+LA_FILE="$PREFIX/lib/libtwolame.la"
+PC_FILE="$PREFIX/lib/pkgconfig/twolame.pc"
 
-echo "==> Building twolame (static library only)"
+banner_start
+
+echo "==> Building $NAME (autotools)"
 echo "Source : $SRC_DIR"
 echo "Prefix : $PREFIX"
 echo "Log    : $LOG_FILE"
 
-if [ ! -d "$SRC_DIR" ]; then
-  echo "ERROR: source directory not found: $SRC_DIR"
-  exit 1
-fi
+require_any_file "source directory not found or invalid" \
+  "$SRC_DIR/configure" \
+  "$SRC_DIR/configure.ac" \
+  "$SRC_DIR/configure.in" \
+  "$SRC_DIR/autogen.sh"
 
+mkdir -p "$LOGS"
 cd "$SRC_DIR"
 
+step "clean previous build state"
+say "make distclean (ignore errors if tree is fresh)"
 make distclean >/dev/null 2>&1 || true
+say "make clean (ignore errors if tree is fresh)"
 make clean >/dev/null 2>&1 || true
+say "remove stale config.cache"
 rm -f config.cache
 
-{
-  echo "ROOT=$ROOT"
-  echo "SRC=$SRC"
-  echo "PREFIX=$PREFIX"
-  echo "PATH=$PATH"
-  echo "ORIGINAL_PATH=$ORIGINAL_PATH"
-  echo "CC=$CC"
-  echo "CFLAGS=$CFLAGS"
-  echo "LDFLAGS=$LDFLAGS"
-  echo "MAKEFLAGS=$MAKEFLAGS"
-  echo "PKG_CONFIG_BIN=$PKG_CONFIG_BIN"
-  echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
-  echo "PKG_CONFIG_LIBDIR=$PKG_CONFIG_LIBDIR"
-  echo
-  echo "===== autoreconf ====="
-} > "$LOG_FILE"
+log_build_env "$LOG_FILE"
 
-if [ -f "autogen.sh" ]; then
-  NOCONFIGURE=1 PATH="$ORIGINAL_PATH" ./autogen.sh >> "$LOG_FILE" 2>&1
+step "prepare build system"
+if [ -f "configure" ]; then
+  say "configure already present, skipping autogen.sh"
+elif [ -f "autogen.sh" ]; then
+  say "running autogen.sh"
+  PATH="$ORIGINAL_PATH" ./autogen.sh >> "$LOG_FILE" 2>&1
+  say "autogen.sh done"
 elif [ -f "configure.ac" ] || [ -f "configure.in" ]; then
+  say "running autoreconf -fi"
   PATH="$ORIGINAL_PATH" autoreconf -fi >> "$LOG_FILE" 2>&1
+  say "autoreconf done"
+else
+  say "no autogen.sh/configure.ac found, skipping autoreconf"
 fi
 
-{
-  echo
-  echo "===== configure ====="
-} >> "$LOG_FILE"
+require_file "./configure" "configure script not found"
 
-PKG_CONFIG="$PKG_CONFIG_BIN" \
-PKG_CONFIG_PATH="$PKG_CONFIG_PATH" \
-PKG_CONFIG_LIBDIR="$PKG_CONFIG_LIBDIR" \
-CC="$CC" \
-CFLAGS="$CFLAGS" \
-LDFLAGS="$LDFLAGS" \
-./configure \
-  --prefix="$PREFIX" \
-  --enable-static \
-  --disable-shared \
-  --disable-frontends \
-  --disable-maintainer-mode \
-  --disable-dependency-tracking \
-  >> "$LOG_FILE" 2>&1
+step "configuring static-only build"
+run_with_heartbeat "configure $NAME" "$LOG_FILE" \
+  env \
+    PKG_CONFIG="$PKG_CONFIG_BIN" \
+    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" \
+    PKG_CONFIG_LIBDIR="$PKG_CONFIG_LIBDIR" \
+    CC="$CC" \
+    CFLAGS="$CFLAGS -std=gnu89" \
+    LDFLAGS="$LDFLAGS" \
+    ./configure \
+      --prefix="$PREFIX" \
+      --enable-static \
+      --disable-shared \
+      --disable-frontend \
+      --disable-maintainer-mode
+done_step "configure"
 
-{
-  echo
-  echo "===== build libtwolame only ====="
-} >> "$LOG_FILE"
+step "running make for library only"
+run_with_heartbeat "build $NAME" "$LOG_FILE" \
+  make -C libtwolame \
+    CC="$CC" \
+    CFLAGS="$CFLAGS -std=gnu89" \
+    LDFLAGS="$LDFLAGS" \
+    libtwolame.la
+done_step "build"
 
-make -C libtwolame >> "$LOG_FILE" 2>&1
+step "install static library manually"
+mkdir -p "$PREFIX/lib"
 
-{
-  echo
-  echo "===== install static artifacts only ====="
-} >> "$LOG_FILE"
-
-mkdir -p "$PREFIX/lib" "$PREFIX/include" "$PREFIX/lib/pkgconfig"
-
-if [ ! -f "libtwolame/.libs/libtwolame.a" ]; then
-  echo "ERROR: built static library not found: libtwolame/.libs/libtwolame.a" | tee -a "$LOG_FILE"
+if [ -f "libtwolame/.libs/libtwolame.a" ]; then
+  cp -f "libtwolame/.libs/libtwolame.a" "$PREFIX/lib/"
+elif [ -f "libtwolame/libtwolame.a" ]; then
+  cp -f "libtwolame/libtwolame.a" "$PREFIX/lib/"
+else
+  echo "ERROR: built static library not found: libtwolame/.libs/libtwolame.a or libtwolame/libtwolame.a"
   exit 1
 fi
+done_step "install static library manually"
 
-if [ ! -f "libtwolame/twolame.h" ]; then
-  echo "ERROR: header not found: libtwolame/twolame.h" | tee -a "$LOG_FILE"
+step "install headers"
+mkdir -p "$PREFIX/include"
+if [ -f "libtwolame/twolame.h" ]; then
+  cp -f "libtwolame/twolame.h" "$PREFIX/include/"
+elif [ -f "twolame.h" ]; then
+  cp -f "twolame.h" "$PREFIX/include/"
+else
+  echo "ERROR: twolame.h not found in source tree"
   exit 1
 fi
+done_step "install headers"
 
-cp -f "libtwolame/.libs/libtwolame.a" "$PREFIX/lib/"
-cp -f "libtwolame/twolame.h" "$PREFIX/include/"
+step "install pkg-config file"
+mkdir -p "$PREFIX/lib/pkgconfig"
 
-cat > "$PREFIX/lib/pkgconfig/twolame.pc" <<EOF
+if [ -f "twolame.pc" ]; then
+  cp -f "twolame.pc" "$PC_FILE"
+elif [ -f "libtwolame/twolame.pc" ]; then
+  cp -f "libtwolame/twolame.pc" "$PC_FILE"
+else
+  cat > "$PC_FILE" <<EOF
 prefix=$PREFIX
 exec_prefix=\${prefix}
-libdir=\${prefix}/lib
+libdir=\${exec_prefix}/lib
 includedir=\${prefix}/include
 
 Name: twolame
-Description: MPEG Audio Layer 2 encoder library
+Description: MPEG Audio Layer 2 encoder
 Version: 0.4.0
 Libs: -L\${libdir} -ltwolame
 Cflags: -I\${includedir}
 EOF
-
-echo "==> Verifying twolame install"
-
-find "$PREFIX/lib" -maxdepth 1 -name 'libtwolame*' -print | sort
-
-if [ ! -f "$PREFIX/lib/libtwolame.a" ]; then
-  echo "ERROR: static library not found: $PREFIX/lib/libtwolame.a"
-  exit 1
 fi
+echo "==> $PC_FILE written"
+done_step "install pkg-config file"
 
-if [ ! -f "$PREFIX/include/twolame.h" ]; then
-  echo "ERROR: header not found: $PREFIX/include/twolame.h"
-  exit 1
-fi
+remove_one_la "$LA_FILE"
 
-if [ ! -f "$PREFIX/lib/pkgconfig/twolame.pc" ]; then
-  echo "ERROR: pkg-config file not found: $PREFIX/lib/pkgconfig/twolame.pc"
-  exit 1
-fi
+step "verify installed files"
+find "$PREFIX/lib" -maxdepth 1 \( -name 'libtwolame*' -o -name 'twolame.pc' \) -print | sort
 
-echo
-echo "===== pkg-config verify ====="
-"$PKG_CONFIG_BIN" --modversion twolame
-"$PKG_CONFIG_BIN" --static --libs twolame
+require_file "$PREFIX/lib/libtwolame.a" "static library not found"
+require_file "$PREFIX/include/twolame.h" "header not found"
+require_file "$PC_FILE" "pkg-config file not found"
+ensure_no_file "$LA_FILE" ".la residue still exists"
 
-echo
-echo "==> twolame installed successfully"
-ls -l "$PREFIX/lib/libtwolame.a"
-ls -l "$PREFIX/include/twolame.h"
-ls -l "$PREFIX/lib/pkgconfig/twolame.pc"
+print_pkg_version twolame
+print_pkg_static_libs twolame
+
+begin_final_verify
+print_verified_file "$PREFIX/lib/libtwolame.a"
+print_verified_file "$PREFIX/include/twolame.h"
+print_verified_file "$PC_FILE"
+
+banner_end

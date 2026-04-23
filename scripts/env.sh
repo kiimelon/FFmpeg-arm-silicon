@@ -1,13 +1,21 @@
 #!/usr/bin/env bash
 
-# Reconstruct a clean login-shell PATH for tool discovery.
-# This avoids reusing a previously sanitized PATH from the current shell.
+#Root 
 if [ -z "${ORIGINAL_PATH:-}" ]; then
   export ORIGINAL_PATH="$(zsh -l -c 'printf %s "$PATH"')"
 fi
 
 # Resolve project root from the scripts directory.
-export ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [ -n "${BASH_SOURCE[0]:-}" ]; then
+  _SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+elif [ -n "${ZSH_VERSION:-}" ]; then
+  _SCRIPT_SOURCE="${(%):-%N}"
+else
+  _SCRIPT_SOURCE="$0"
+fi
+
+export ROOT="$(cd "$(dirname "$_SCRIPT_SOURCE")/.." && pwd)"
+unset _SCRIPT_SOURCE
 
 # Standard project directories.
 export SRC="$ROOT/src"
@@ -27,10 +35,20 @@ export NCPU="$(sysctl -n hw.ncpu)"
 export CC="clang"
 export CXX="clang++"
 
-# Detect external tools before sanitizing PATH.
-# Save absolute paths so later stages do not depend on Homebrew being in PATH.
 if PATH="$ORIGINAL_PATH" command -v pkg-config >/dev/null 2>&1; then
   export PKG_CONFIG_BIN="$(PATH="$ORIGINAL_PATH" command -v pkg-config)"
+fi
+
+if PATH="$ORIGINAL_PATH" command -v cmake >/dev/null 2>&1; then
+  export CMAKE_BIN="$(PATH="$ORIGINAL_PATH" command -v cmake)"
+fi
+
+if PATH="$ORIGINAL_PATH" command -v meson >/dev/null 2>&1; then
+  export MESON_BIN="$(PATH="$ORIGINAL_PATH" command -v meson)"
+fi
+
+if PATH="$ORIGINAL_PATH" command -v ninja >/dev/null 2>&1; then
+  export NINJA_BIN="$(PATH="$ORIGINAL_PATH" command -v ninja)"
 fi
 
 if PATH="$ORIGINAL_PATH" command -v glibtool >/dev/null 2>&1; then
@@ -41,18 +59,43 @@ if PATH="$ORIGINAL_PATH" command -v glibtoolize >/dev/null 2>&1; then
   export LIBTOOLIZE="$(PATH="$ORIGINAL_PATH" command -v glibtoolize)"
 fi
 
-if PATH="$ORIGINAL_PATH" command -v cmake >/dev/null 2>&1; then
-  export CMAKE_BIN="$(PATH="$ORIGINAL_PATH" command -v cmake)"
+
+# PATH
+TOOL_PATHS=""
+
+if [ -n "${PKG_CONFIG_BIN:-}" ]; then
+  TOOL_PATHS="$(dirname "$PKG_CONFIG_BIN")"
 fi
 
-if PATH="$ORIGINAL_PATH" command -v ninja >/dev/null 2>&1; then
-  export NINJA_BIN="$(PATH="$ORIGINAL_PATH" command -v ninja)"
+if [ -n "${CMAKE_BIN:-}" ]; then
+  TOOL_DIR="$(dirname "$CMAKE_BIN")"
+  [[ ":$TOOL_PATHS:" != *":$TOOL_DIR:"* ]] && TOOL_PATHS="${TOOL_PATHS:+$TOOL_PATHS:}$TOOL_DIR"
 fi
 
-# Keep PATH minimal and deterministic.
-# Local tools come first, then system tools.
-# Homebrew paths are intentionally excluded here.
-export PATH="$PREFIX/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+if [ -n "${MESON_BIN:-}" ]; then
+  TOOL_DIR="$(dirname "$MESON_BIN")"
+  [[ ":$TOOL_PATHS:" != *":$TOOL_DIR:"* ]] && TOOL_PATHS="${TOOL_PATHS:+$TOOL_PATHS:}$TOOL_DIR"
+fi
+
+if [ -n "${NINJA_BIN:-}" ]; then
+  TOOL_DIR="$(dirname "$NINJA_BIN")"
+  [[ ":$TOOL_PATHS:" != *":$TOOL_DIR:"* ]] && TOOL_PATHS="${TOOL_PATHS:+$TOOL_PATHS:}$TOOL_DIR"
+fi
+
+if [ -n "${LIBTOOL:-}" ]; then
+  TOOL_DIR="$(dirname "$LIBTOOL")"
+  [[ ":$TOOL_PATHS:" != *":$TOOL_DIR:"* ]] && TOOL_PATHS="${TOOL_PATHS:+$TOOL_PATHS:}$TOOL_DIR"
+fi
+
+if [ -n "${LIBTOOLIZE:-}" ]; then
+  TOOL_DIR="$(dirname "$LIBTOOLIZE")"
+  [[ ":$TOOL_PATHS:" != *":$TOOL_DIR:"* ]] && TOOL_PATHS="${TOOL_PATHS:+$TOOL_PATHS:}$TOOL_DIR"
+fi
+
+export PATH="$PREFIX/bin${TOOL_PATHS:+:$TOOL_PATHS}:/usr/bin:/bin:/usr/sbin:/sbin"
+
+unset TOOL_DIR
+unset TOOL_PATHS
 
 # Restrict pkg-config lookup to the local prefix only.
 # This helps prevent accidental linkage against external packages.

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 source "$(dirname "$0")/../env.sh"
+source "$(dirname "$0")/../build-static-common.sh"
 
 if [ -z "${PKG_CONFIG_BIN:-}" ]; then
   echo "ERROR: pkg-config not found in ORIGINAL_PATH"
@@ -12,105 +13,101 @@ NAME="libtheora"
 SRC_DIR="$SRC/$NAME"
 LOG_FILE="$LOGS/$NAME-build.log"
 
-echo "==> Building libtheora (autotools)"
+LA_FILES=(
+  "$PREFIX/lib/libtheora.la"
+  "$PREFIX/lib/libtheoradec.la"
+  "$PREFIX/lib/libtheoraenc.la"
+)
+
+banner_start
+
+echo "==> Building $NAME (autotools)"
 echo "Source : $SRC_DIR"
 echo "Prefix : $PREFIX"
 echo "Log    : $LOG_FILE"
 
-if [ ! -d "$SRC_DIR" ]; then
-  echo "ERROR: source directory not found: $SRC_DIR"
-  exit 1
-fi
+require_any_file "source directory not found or invalid" \
+  "$SRC_DIR/configure" \
+  "$SRC_DIR/configure.ac" \
+  "$SRC_DIR/configure.in" \
+  "$SRC_DIR/autogen.sh"
 
+mkdir -p "$LOGS"
 cd "$SRC_DIR"
 
+step "clean previous build state"
+say "make distclean (ignore errors if tree is fresh)"
 make distclean >/dev/null 2>&1 || true
+say "make clean (ignore errors if tree is fresh)"
 make clean >/dev/null 2>&1 || true
+say "remove stale config.cache"
 rm -f config.cache
 
-{
-  echo "ROOT=$ROOT"
-  echo "SRC=$SRC"
-  echo "PREFIX=$PREFIX"
-  echo "PATH=$PATH"
-  echo "ORIGINAL_PATH=$ORIGINAL_PATH"
-  echo "CC=$CC"
-  echo "CFLAGS=$CFLAGS"
-  echo "LDFLAGS=$LDFLAGS"
-  echo "MAKEFLAGS=$MAKEFLAGS"
-  echo "PKG_CONFIG_BIN=$PKG_CONFIG_BIN"
-  echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
-  echo "PKG_CONFIG_LIBDIR=$PKG_CONFIG_LIBDIR"
-  echo
-  echo "===== autoreconf ====="
-} > "$LOG_FILE"
+log_build_env "$LOG_FILE"
 
+step "prepare build system"
 if [ -f "autogen.sh" ]; then
-  NOCONFIGURE=1 PATH="$ORIGINAL_PATH" ./autogen.sh >> "$LOG_FILE" 2>&1
+  say "running autogen.sh with NOCONFIGURE=1"
+  PATH="$ORIGINAL_PATH" NOCONFIGURE=1 ./autogen.sh >> "$LOG_FILE" 2>&1
+  say "autogen.sh done"
 elif [ -f "configure.ac" ] || [ -f "configure.in" ]; then
+  say "running autoreconf -fi"
   PATH="$ORIGINAL_PATH" autoreconf -fi >> "$LOG_FILE" 2>&1
+  say "autoreconf done"
+else
+  say "no autogen.sh/configure.ac found, skipping autoreconf"
 fi
 
-{
-  echo
-  echo "===== configure ====="
-} >> "$LOG_FILE"
+require_file "./configure" "configure script not found"
 
-PKG_CONFIG="$PKG_CONFIG_BIN" \
-PKG_CONFIG_PATH="$PKG_CONFIG_PATH" \
-PKG_CONFIG_LIBDIR="$PKG_CONFIG_LIBDIR" \
-CC="$CC" \
-CFLAGS="$CFLAGS" \
-LDFLAGS="$LDFLAGS" \
-./configure \
-  --prefix="$PREFIX" \
-  --enable-static \
-  --disable-shared \
-  --disable-examples \
-  --disable-oggtest \
-  --disable-vorbistest \
-  >> "$LOG_FILE" 2>&1
+step "configuring static-only build"
+run_with_heartbeat "configure $NAME" "$LOG_FILE" \
+  env \
+    PKG_CONFIG="$PKG_CONFIG_BIN" \
+    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" \
+    PKG_CONFIG_LIBDIR="$PKG_CONFIG_LIBDIR" \
+    CC="$CC" \
+    CFLAGS="$CFLAGS" \
+    LDFLAGS="$LDFLAGS" \
+    ./configure \
+      --prefix="$PREFIX" \
+      --enable-static \
+      --disable-shared \
+      --disable-examples \
+      --disable-oggtest \
+      --disable-vorbistest
+done_step "configure"
 
-{
-  echo
-  echo "===== build ====="
-} >> "$LOG_FILE"
+step "running make"
+run_with_heartbeat "build $NAME" "$LOG_FILE" \
+  make
+done_step "build"
 
-make >> "$LOG_FILE" 2>&1
+step "running make install"
+run_with_heartbeat "install $NAME" "$LOG_FILE" \
+  make install
+done_step "install"
 
-{
-  echo
-  echo "===== install ====="
-} >> "$LOG_FILE"
+remove_many_la "${LA_FILES[@]}"
 
-make install >> "$LOG_FILE" 2>&1
-
-echo "==> Verifying libtheora install"
-
+step "verify installed files"
 find "$PREFIX/lib" -maxdepth 1 -name 'libtheora*' -print | sort
 
-if [ ! -f "$PREFIX/lib/libtheora.a" ] && [ ! -f "$PREFIX/lib/libtheoradec.a" ]; then
-  echo "ERROR: static theora libraries not found"
-  exit 1
-fi
+require_any_file "static theora libraries not found" \
+  "$PREFIX/lib/libtheora.a" \
+  "$PREFIX/lib/libtheoradec.a"
+require_file "$PREFIX/include/theora/theora.h" "header not found"
+require_file "$PREFIX/lib/pkgconfig/theora.pc" "pkg-config file not found"
+ensure_no_many_files "${LA_FILES[@]}"
 
-if [ ! -f "$PREFIX/include/theora/theora.h" ]; then
-  echo "ERROR: header not found: $PREFIX/include/theora/theora.h"
-  exit 1
-fi
+print_pkg_version theora
+print_pkg_static_libs theora
 
-if [ ! -f "$PREFIX/lib/pkgconfig/theora.pc" ]; then
-  echo "ERROR: pkg-config file not found: $PREFIX/lib/pkgconfig/theora.pc"
-  exit 1
-fi
+begin_final_verify
+print_first_existing_file \
+  "$PREFIX/lib/libtheora.a" \
+  "$PREFIX/lib/libtheoradec.a"
+print_verified_file "$PREFIX/include/theora/theora.h"
+print_verified_file "$PREFIX/lib/pkgconfig/theora.pc"
 
-echo
-echo "===== pkg-config verify ====="
-"$PKG_CONFIG_BIN" --modversion theora
-"$PKG_CONFIG_BIN" --static --libs theora
-
-echo
-echo "==> libtheora installed successfully"
-find "$PREFIX/lib" -maxdepth 1 -name 'libtheora*' -print | sort
-ls -l "$PREFIX/include/theora/theora.h"
-ls -l "$PREFIX/lib/pkgconfig/theora.pc"
+banner_end

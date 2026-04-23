@@ -2,6 +2,7 @@
 set -euo pipefail
 
 source "$(dirname "$0")/../env.sh"
+source "$(dirname "$0")/../build-static-common.sh"
 
 if [ -z "${PKG_CONFIG_BIN:-}" ]; then
   echo "ERROR: pkg-config not found in ORIGINAL_PATH"
@@ -11,109 +12,91 @@ fi
 NAME="libzmq"
 SRC_DIR="$SRC/$NAME"
 LOG_FILE="$LOGS/$NAME-build.log"
+LA_FILE="$PREFIX/lib/libzmq.la"
 
-echo "==> Building libzmq (autotools)"
+banner_start
+
+echo "==> Building $NAME (autotools)"
 echo "Source : $SRC_DIR"
 echo "Prefix : $PREFIX"
 echo "Log    : $LOG_FILE"
 
-if [ ! -d "$SRC_DIR" ]; then
-  echo "ERROR: source directory not found: $SRC_DIR"
-  exit 1
-fi
+require_any_file "source directory not found or invalid" \
+  "$SRC_DIR/configure" \
+  "$SRC_DIR/configure.ac" \
+  "$SRC_DIR/configure.in" \
+  "$SRC_DIR/autogen.sh"
 
+mkdir -p "$LOGS"
 cd "$SRC_DIR"
 
+step "clean previous build state"
+say "make distclean (ignore errors if tree is fresh)"
 make distclean >/dev/null 2>&1 || true
+say "make clean (ignore errors if tree is fresh)"
 make clean >/dev/null 2>&1 || true
+say "remove stale config.cache"
 rm -f config.cache
 
-{
-  echo "ROOT=$ROOT"
-  echo "SRC=$SRC"
-  echo "PREFIX=$PREFIX"
-  echo "PATH=$PATH"
-  echo "ORIGINAL_PATH=$ORIGINAL_PATH"
-  echo "CC=$CC"
-  echo "CFLAGS=$CFLAGS"
-  echo "LDFLAGS=$LDFLAGS"
-  echo "MAKEFLAGS=$MAKEFLAGS"
-  echo "PKG_CONFIG_BIN=$PKG_CONFIG_BIN"
-  echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
-  echo "PKG_CONFIG_LIBDIR=$PKG_CONFIG_LIBDIR"
-  echo
-  echo "===== autoreconf ====="
-} > "$LOG_FILE"
+log_build_env "$LOG_FILE"
 
+step "prepare build system"
 if [ -f "autogen.sh" ]; then
-  NOCONFIGURE=1 PATH="$ORIGINAL_PATH" ./autogen.sh >> "$LOG_FILE" 2>&1
+  say "running autogen.sh with NOCONFIGURE=1"
+  PATH="$ORIGINAL_PATH" NOCONFIGURE=1 ./autogen.sh >> "$LOG_FILE" 2>&1
+  say "autogen.sh done"
 elif [ -f "configure.ac" ] || [ -f "configure.in" ]; then
+  say "running autoreconf -fi"
   PATH="$ORIGINAL_PATH" autoreconf -fi >> "$LOG_FILE" 2>&1
+  say "autoreconf done"
+else
+  say "no autogen.sh/configure.ac found, skipping autoreconf"
 fi
 
-if [ ! -f "./configure" ]; then
-  echo "ERROR: configure script not found in $SRC_DIR" >> "$LOG_FILE"
-  exit 1
-fi
+require_file "./configure" "configure script not found"
 
-{
-  echo
-  echo "===== configure ====="
-} >> "$LOG_FILE"
+step "configuring static-only build"
+run_with_heartbeat "configure $NAME" "$LOG_FILE" \
+  env \
+    PKG_CONFIG="$PKG_CONFIG_BIN" \
+    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" \
+    PKG_CONFIG_LIBDIR="$PKG_CONFIG_LIBDIR" \
+    CC="$CC" \
+    CFLAGS="$CFLAGS" \
+    LDFLAGS="$LDFLAGS" \
+    ./configure \
+      --prefix="$PREFIX" \
+      --enable-static \
+      --disable-shared \
+      --disable-perf
+done_step "configure"
 
-PKG_CONFIG="$PKG_CONFIG_BIN" \
-PKG_CONFIG_PATH="$PKG_CONFIG_PATH" \
-PKG_CONFIG_LIBDIR="$PKG_CONFIG_LIBDIR" \
-CC="$CC" \
-CFLAGS="$CFLAGS" \
-LDFLAGS="$LDFLAGS" \
-./configure \
-  --prefix="$PREFIX" \
-  --enable-static \
-  --disable-shared \
-  --disable-perf \
-  >> "$LOG_FILE" 2>&1
+step "running make"
+run_with_heartbeat "build $NAME" "$LOG_FILE" \
+  make
+done_step "build"
 
-{
-  echo
-  echo "===== build ====="
-} >> "$LOG_FILE"
+step "running make install"
+run_with_heartbeat "install $NAME" "$LOG_FILE" \
+  make install
+done_step "install"
 
-make >> "$LOG_FILE" 2>&1
+remove_one_la "$LA_FILE"
 
-{
-  echo
-  echo "===== install ====="
-} >> "$LOG_FILE"
-
-make install >> "$LOG_FILE" 2>&1
-
-echo "==> Verifying libzmq install"
-
+step "verify installed files"
 find "$PREFIX/lib" -maxdepth 1 -name 'libzmq*' -print | sort
 
-if [ ! -f "$PREFIX/lib/libzmq.a" ]; then
-  echo "ERROR: static library not found: $PREFIX/lib/libzmq.a"
-  exit 1
-fi
+require_file "$PREFIX/lib/libzmq.a" "static library not found"
+require_file "$PREFIX/include/zmq.h" "header not found"
+require_file "$PREFIX/lib/pkgconfig/libzmq.pc" "pkg-config file not found"
+ensure_no_file "$LA_FILE" ".la residue still exists"
 
-if [ ! -f "$PREFIX/include/zmq.h" ]; then
-  echo "ERROR: header not found: $PREFIX/include/zmq.h"
-  exit 1
-fi
+print_pkg_version libzmq
+print_pkg_static_libs libzmq
 
-if [ ! -f "$PREFIX/lib/pkgconfig/libzmq.pc" ]; then
-  echo "ERROR: pkg-config file not found: $PREFIX/lib/pkgconfig/libzmq.pc"
-  exit 1
-fi
+print_verified_files \
+  "$PREFIX/lib/libzmq.a" \
+  "$PREFIX/include/zmq.h" \
+  "$PREFIX/lib/pkgconfig/libzmq.pc"
 
-echo
-echo "===== pkg-config verify ====="
-"$PKG_CONFIG_BIN" --modversion libzmq
-"$PKG_CONFIG_BIN" --static --libs libzmq
-
-echo
-echo "==> libzmq installed successfully"
-ls -l "$PREFIX/lib/libzmq.a"
-ls -l "$PREFIX/include/zmq.h"
-ls -l "$PREFIX/lib/pkgconfig/libzmq.pc"
+banner_end

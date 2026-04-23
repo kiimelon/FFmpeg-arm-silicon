@@ -2,100 +2,55 @@
 set -euo pipefail
 
 source "$(dirname "$0")/../env.sh"
+source "$(dirname "$0")/../build-static-common.sh"
 
-if [ -z "${MESON_BIN:-}" ]; then
-  if [ -n "${ORIGINAL_PATH:-}" ] && PATH="$ORIGINAL_PATH" command -v meson >/dev/null 2>&1; then
-    export MESON_BIN="$(PATH="$ORIGINAL_PATH" command -v meson)"
-  else
-    echo "ERROR: meson not found in ORIGINAL_PATH"
-    exit 1
-  fi
-fi
+NAME="fribidi"
+SRC_DIR="$SRC/$NAME"
+BUILD_DIR="$BUILD/$NAME"
+LOG_FILE="$LOGS/$NAME-build.log"
 
-if [ -z "${NINJA_BIN:-}" ]; then
-  if [ -n "${ORIGINAL_PATH:-}" ] && PATH="$ORIGINAL_PATH" command -v ninja >/dev/null 2>&1; then
-    export NINJA_BIN="$(PATH="$ORIGINAL_PATH" command -v ninja)"
-  else
-    echo "ERROR: ninja not found in ORIGINAL_PATH"
-    exit 1
-  fi
-fi
+banner_start
 
-FRIBIDI_SRC="$SRC/fribidi"
-FRIBIDI_BUILD_DIR="$BUILD/fribidi"
-FRIBIDI_LOG="$LOGS/fribidi-build.log"
-
-MESON_PATH="$(dirname "$MESON_BIN")"
-NINJA_PATH="$(dirname "$NINJA_BIN")"
-TOOL_PATH="$MESON_PATH:$NINJA_PATH:$PATH"
-
-echo "==> Building fribidi (Meson)"
-echo "Source : $FRIBIDI_SRC"
-echo "Build  : $FRIBIDI_BUILD_DIR"
+echo "==> Building $NAME (meson)"
+echo "Source : $SRC_DIR"
+echo "Build  : $BUILD_DIR"
 echo "Prefix : $PREFIX"
-echo "Log    : $FRIBIDI_LOG"
+echo "Log    : $LOG_FILE"
 
-if [ ! -d "$FRIBIDI_SRC" ]; then
-  echo "ERROR: source directory not found: $FRIBIDI_SRC"
-  exit 1
-fi
+require_file "$SRC_DIR/meson.build" "source directory not found or invalid"
 
-rm -rf "$FRIBIDI_BUILD_DIR"
-mkdir -p "$BUILD" "$LOGS"
+mkdir -p "$LOGS"
+rm -rf "$BUILD_DIR"
+mkdir -p "$BUILD_DIR"
 
-{
-  echo "ROOT=$ROOT"
-  echo "SRC=$SRC"
-  echo "BUILD=$BUILD"
-  echo "PREFIX=$PREFIX"
-  echo "PATH=$PATH"
-  echo "ORIGINAL_PATH=$ORIGINAL_PATH"
-  echo "TOOL_PATH=$TOOL_PATH"
-  echo "CC=$CC"
-  echo "CFLAGS=$CFLAGS"
-  echo "LDFLAGS=$LDFLAGS"
-  echo "MESON_BIN=$MESON_BIN"
-  echo "NINJA_BIN=$NINJA_BIN"
-  echo
-  echo "===== meson setup ====="
-} > "$FRIBIDI_LOG"
+log_build_env "$LOG_FILE"
 
-CC="$CC" \
-CFLAGS="$CFLAGS" \
-LDFLAGS="$LDFLAGS" \
-PATH="$TOOL_PATH" \
-"$MESON_BIN" setup "$FRIBIDI_BUILD_DIR" "$FRIBIDI_SRC" \
+meson_configure \
   --prefix="$PREFIX" \
-  --buildtype=release \
   --default-library=static \
-  -Dbin=false \
   -Ddocs=false \
-  -Dtests=false \
-  >> "$FRIBIDI_LOG" 2>&1
+  -Dbin=false \
+  -Dtests=false
 
-PATH="$TOOL_PATH" "$MESON_BIN" compile -C "$FRIBIDI_BUILD_DIR" >> "$FRIBIDI_LOG" 2>&1
-PATH="$TOOL_PATH" "$MESON_BIN" install -C "$FRIBIDI_BUILD_DIR" >> "$FRIBIDI_LOG" 2>&1
+meson_build
+meson_install
 
-echo "==> Verifying fribidi install"
+echo
+echo "==> no .la residue expected for $NAME"
 
-find "$PREFIX/lib" -maxdepth 1 -name 'libfribidi*' -print | sort
+step "verify installed files"
+find "$PREFIX/lib" -maxdepth 1 \( -name 'libfribidi*' -o -name 'fribidi.pc' \) -print | sort
 
-if [ ! -f "$PREFIX/lib/libfribidi.a" ]; then
-  echo "ERROR: static library not found: $PREFIX/lib/libfribidi.a"
-  exit 1
-fi
+require_file "$PREFIX/lib/libfribidi.a" "static library not found"
+require_file "$PREFIX/include/fribidi/fribidi.h" "header not found"
+require_file "$PREFIX/lib/pkgconfig/fribidi.pc" "pkg-config file not found"
 
-if [ ! -f "$PREFIX/include/fribidi/fribidi.h" ]; then
-  echo "ERROR: header not found: $PREFIX/include/fribidi/fribidi.h"
-  exit 1
-fi
+print_pkg_version fribidi
+print_pkg_static_libs fribidi
 
-if [ ! -f "$PREFIX/lib/pkgconfig/fribidi.pc" ]; then
-  echo "ERROR: pkg-config file not found: $PREFIX/lib/pkgconfig/fribidi.pc"
-  exit 1
-fi
+begin_final_verify
+print_verified_file "$PREFIX/lib/libfribidi.a"
+print_verified_file "$PREFIX/include/fribidi/fribidi.h"
+print_verified_file "$PREFIX/lib/pkgconfig/fribidi.pc"
 
-echo "==> fribidi installed successfully"
-ls -l "$PREFIX/lib/libfribidi.a"
-ls -l "$PREFIX/include/fribidi/fribidi.h"
-ls -l "$PREFIX/lib/pkgconfig/fribidi.pc"
+banner_end

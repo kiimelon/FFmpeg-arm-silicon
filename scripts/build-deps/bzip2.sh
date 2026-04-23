@@ -2,101 +2,79 @@
 set -euo pipefail
 
 source "$(dirname "$0")/../env.sh"
+source "$(dirname "$0")/../build-static-common.sh"
 
-if [ -z "${CMAKE_BIN:-}" ]; then
-  echo "ERROR: cmake not found in ORIGINAL_PATH"
-  exit 1
-fi
+NAME="bzip2"
+SRC_DIR="$SRC/$NAME"
+LOG_FILE="$LOGS/$NAME-build.log"
+PC_DIR="$PREFIX/lib/pkgconfig"
+PC_FILE="$PC_DIR/bzip2.pc"
 
-BZIP2_SRC="$SRC/bzip2"
-BZIP2_BUILD_DIR="$BUILD/bzip2"
-BZIP2_BUILD_LOG="$LOGS/bzip2-build.log"
-BZIP2_INSTALL_LOG="$LOGS/bzip2-install.log"
+banner_start
 
-echo "==> Building bzip2 (CMake)"
-echo "Source : $BZIP2_SRC"
-echo "Build  : $BZIP2_BUILD_DIR"
+echo "==> Building $NAME (make)"
+echo "Source : $SRC_DIR"
 echo "Prefix : $PREFIX"
-echo "Logs   : $LOGS"
+echo "Log    : $LOG_FILE"
 
-if [ ! -d "$BZIP2_SRC" ]; then
-  echo "ERROR: source directory not found: $BZIP2_SRC"
-  exit 1
-fi
+require_file "$SRC_DIR/Makefile" "source directory not found or invalid"
 
-rm -rf "$BZIP2_BUILD_DIR"
-mkdir -p "$BZIP2_BUILD_DIR"
-mkdir -p "$PREFIX/lib/pkgconfig"
+mkdir -p "$LOGS" "$PC_DIR"
+cd "$SRC_DIR"
 
-{
-  echo "ROOT=$ROOT"
-  echo "SRC=$SRC"
-  echo "BUILD=$BUILD"
-  echo "PREFIX=$PREFIX"
-  echo "PATH=$PATH"
-  echo "ORIGINAL_PATH=$ORIGINAL_PATH"
-  echo "CC=$CC"
-  echo "CFLAGS=$CFLAGS"
-  echo "CXX=$CXX"
-  echo "CXXFLAGS=$CXXFLAGS"
-  echo "LDFLAGS=$LDFLAGS"
-  echo "MAKEFLAGS=$MAKEFLAGS"
-  echo "CMAKE_BIN=$CMAKE_BIN"
-  echo
-  echo "===== cmake configure ====="
-} > "$BZIP2_BUILD_LOG"
+step "clean previous build state"
+say "make clean (ignore errors if tree is fresh)"
+make clean >/dev/null 2>&1 || true
 
-"$CMAKE_BIN" -S "$BZIP2_SRC" -B "$BZIP2_BUILD_DIR" \
-  -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOSX_DEPLOYMENT_TARGET" \
-  -DCMAKE_OSX_ARCHITECTURES="$ARCH" \
-  -DCMAKE_C_COMPILER="$CC" \
-  -DCMAKE_C_FLAGS="$CFLAGS" \
-  -DENABLE_SHARED_LIB=OFF \
-  -DENABLE_STATIC_LIB=ON \
-  >> "$BZIP2_BUILD_LOG" 2>&1
+log_build_env "$LOG_FILE"
 
-"$CMAKE_BIN" --build "$BZIP2_BUILD_DIR" >> "$BZIP2_BUILD_LOG" 2>&1
+step "running make"
+run_with_heartbeat "build $NAME" "$LOG_FILE" \
+  make \
+    CC="$CC" \
+    CFLAGS="$CFLAGS -fPIC" \
+    LDFLAGS="$LDFLAGS"
+done_step "build"
 
-{
-  echo "===== cmake install ====="
-} > "$BZIP2_INSTALL_LOG"
+step "running make install"
+run_with_heartbeat "install $NAME" "$LOG_FILE" \
+  make \
+    PREFIX="$PREFIX" \
+    install
+done_step "install"
 
-"$CMAKE_BIN" --install "$BZIP2_BUILD_DIR" >> "$BZIP2_INSTALL_LOG" 2>&1
-
-# Overwrite pkg-config metadata so it matches the actual installed static library.
-cat > "$PREFIX/lib/pkgconfig/bzip2.pc" <<EOF
+step "write pkg-config file"
+cat > "$PC_FILE" <<EOF
 prefix=$PREFIX
 exec_prefix=\${prefix}
-libdir=\${prefix}/lib
+libdir=\${exec_prefix}/lib
 includedir=\${prefix}/include
 
 Name: bzip2
 Description: lossless, block-sorting data compression
 Version: 1.0.8
-Libs: -L\${libdir} -lbz2_static
+Libs: -L\${libdir} -lbz2
 Cflags: -I\${includedir}
 EOF
+echo "==> $PC_FILE written"
+done_step "write pkg-config file"
 
-echo "==> Verifying bzip2 install"
+echo
+echo "==> no .la residue expected for $NAME"
 
-if [ ! -f "$PREFIX/lib/libbz2_static.a" ]; then
-  echo "ERROR: static library not found: $PREFIX/lib/libbz2_static.a"
-  exit 1
-fi
+step "verify installed files"
+find "$PREFIX/lib" -maxdepth 1 \( -name 'libbz2*' -o -name 'bzip2.pc' -o -name 'bz2.pc' \) -print | sort
 
-if [ ! -f "$PREFIX/include/bzlib.h" ]; then
-  echo "ERROR: header not found: $PREFIX/include/bzlib.h"
-  exit 1
-fi
+require_file "$PREFIX/lib/libbz2.a" "static library not found"
+require_file "$PREFIX/include/bzlib.h" "header not found"
+require_file "$PC_FILE" "pkg-config file not found"
 
-if [ ! -f "$PREFIX/lib/pkgconfig/bzip2.pc" ]; then
-  echo "ERROR: pkg-config file not found: $PREFIX/lib/pkgconfig/bzip2.pc"
-  exit 1
-fi
+print_pkg_version bzip2
+print_pkg_static_libs bzip2
 
-echo "==> bzip2 installed successfully"
-ls -l "$PREFIX/lib/libbz2_static.a"
-ls -l "$PREFIX/include/bzlib.h"
-ls -l "$PREFIX/lib/pkgconfig/bzip2.pc"
+begin_final_verify
+print_verified_file "$PREFIX/lib/libbz2.a"
+print_verified_file "$PREFIX/include/bzlib.h"
+print_verified_file "$PC_FILE"
+
+banner_end

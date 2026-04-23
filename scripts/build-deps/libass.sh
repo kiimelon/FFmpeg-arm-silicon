@@ -2,106 +2,100 @@
 set -euo pipefail
 
 source "$(dirname "$0")/../env.sh"
+source "$(dirname "$0")/../build-static-common.sh"
 
 if [ -z "${PKG_CONFIG_BIN:-}" ]; then
   echo "ERROR: pkg-config not found in ORIGINAL_PATH"
   exit 1
 fi
 
-LIBASS_SRC="$SRC/libass"
-LIBASS_LOG="$LOGS/libass-build.log"
+NAME="libass"
+SRC_DIR="$SRC/$NAME"
+LOG_FILE="$LOGS/$NAME-build.log"
+LA_FILE="$PREFIX/lib/libass.la"
 
-echo "==> Building libass (autotools)"
-echo "Source : $LIBASS_SRC"
+banner_start
+
+echo "==> Building $NAME (autotools)"
+echo "Source : $SRC_DIR"
 echo "Prefix : $PREFIX"
-echo "Log    : $LIBASS_LOG"
+echo "Log    : $LOG_FILE"
 
-if [ ! -d "$LIBASS_SRC" ]; then
-  echo "ERROR: source directory not found: $LIBASS_SRC"
-  exit 1
-fi
+require_any_file "source directory not found or invalid" \
+  "$SRC_DIR/configure" \
+  "$SRC_DIR/configure.ac" \
+  "$SRC_DIR/configure.in" \
+  "$SRC_DIR/autogen.sh"
 
-cd "$LIBASS_SRC"
+mkdir -p "$LOGS"
+cd "$SRC_DIR"
 
+step "clean previous build state"
+say "make distclean (ignore errors if tree is fresh)"
 make distclean >/dev/null 2>&1 || true
+say "make clean (ignore errors if tree is fresh)"
 make clean >/dev/null 2>&1 || true
 
-{
-  echo "ROOT=$ROOT"
-  echo "SRC=$SRC"
-  echo "PREFIX=$PREFIX"
-  echo "PATH=$PATH"
-  echo "ORIGINAL_PATH=$ORIGINAL_PATH"
-  echo "CC=$CC"
-  echo "CFLAGS=$CFLAGS"
-  echo "CXX=$CXX"
-  echo "CXXFLAGS=$CXXFLAGS"
-  echo "LDFLAGS=$LDFLAGS"
-  echo "MAKEFLAGS=$MAKEFLAGS"
-  echo "PKG_CONFIG_BIN=$PKG_CONFIG_BIN"
-  echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
-  echo "PKG_CONFIG_LIBDIR=$PKG_CONFIG_LIBDIR"
-  echo
-  echo "===== autoreconf ====="
-} > "$LIBASS_LOG"
+log_build_env "$LOG_FILE"
 
+step "prepare build system"
 if [ -f "autogen.sh" ]; then
-  PATH="$ORIGINAL_PATH" ./autogen.sh >> "$LIBASS_LOG" 2>&1
+  say "running autogen.sh"
+  PATH="$ORIGINAL_PATH" ./autogen.sh >> "$LOG_FILE" 2>&1
+  say "autogen.sh done"
 elif [ -f "configure.ac" ] || [ -f "configure.in" ]; then
-  PATH="$ORIGINAL_PATH" autoreconf -fi >> "$LIBASS_LOG" 2>&1
+  say "running autoreconf -fi"
+  PATH="$ORIGINAL_PATH" autoreconf -fi >> "$LOG_FILE" 2>&1
+  say "autoreconf done"
+else
+  say "no autogen.sh/configure.ac found, skipping autoreconf"
 fi
 
-{
-  echo
-  echo "===== configure ====="
-} >> "$LIBASS_LOG"
+require_file "./configure" "configure script not found"
 
-PKG_CONFIG="$PKG_CONFIG_BIN" \
-PKG_CONFIG_PATH="$PKG_CONFIG_PATH" \
-PKG_CONFIG_LIBDIR="$PKG_CONFIG_LIBDIR" \
-CC="$CC" \
-CFLAGS="$CFLAGS" \
-LDFLAGS="$LDFLAGS" \
-./configure \
-  --prefix="$PREFIX" \
-  --enable-static \
-  --disable-shared \
-  >> "$LIBASS_LOG" 2>&1
+step "configuring static-only build"
+run_with_heartbeat "configure $NAME" "$LOG_FILE" \
+  env \
+    PKG_CONFIG="$PKG_CONFIG_BIN" \
+    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" \
+    PKG_CONFIG_LIBDIR="$PKG_CONFIG_LIBDIR" \
+    CC="$CC" \
+    CFLAGS="$CFLAGS" \
+    CXX="$CXX" \
+    CXXFLAGS="$CXXFLAGS" \
+    LDFLAGS="$LDFLAGS" \
+    ./configure \
+      --prefix="$PREFIX" \
+      --enable-static \
+      --disable-shared
+done_step "configure"
 
-{
-  echo
-  echo "===== build ====="
-} >> "$LIBASS_LOG"
+step "running make"
+run_with_heartbeat "build $NAME" "$LOG_FILE" \
+  make
+done_step "build"
 
-make >> "$LIBASS_LOG" 2>&1
+step "running make install"
+run_with_heartbeat "install $NAME" "$LOG_FILE" \
+  make install
+done_step "install"
 
-{
-  echo
-  echo "===== install ====="
-} >> "$LIBASS_LOG"
+remove_one_la "$LA_FILE"
 
-make install >> "$LIBASS_LOG" 2>&1
-
-echo "==> Verifying libass install"
-
+step "verify installed files"
 find "$PREFIX/lib" -maxdepth 1 -name 'libass*' -print | sort
 
-if [ ! -f "$PREFIX/lib/libass.a" ]; then
-  echo "ERROR: static library not found: $PREFIX/lib/libass.a"
-  exit 1
-fi
+require_file "$PREFIX/lib/libass.a" "static library not found"
+require_file "$PREFIX/include/ass/ass.h" "header not found"
+require_file "$PREFIX/lib/pkgconfig/libass.pc" "pkg-config file not found"
+ensure_no_file "$LA_FILE" ".la residue still exists"
 
-if [ ! -f "$PREFIX/include/ass/ass.h" ]; then
-  echo "ERROR: header not found: $PREFIX/include/ass/ass.h"
-  exit 1
-fi
+print_pkg_version libass
+print_pkg_static_libs libass
 
-if [ ! -f "$PREFIX/lib/pkgconfig/libass.pc" ]; then
-  echo "ERROR: pkg-config file not found: $PREFIX/lib/pkgconfig/libass.pc"
-  exit 1
-fi
+print_verified_files \
+  "$PREFIX/lib/libass.a" \
+  "$PREFIX/include/ass/ass.h" \
+  "$PREFIX/lib/pkgconfig/libass.pc"
 
-echo "==> libass installed successfully"
-ls -l "$PREFIX/lib/libass.a"
-ls -l "$PREFIX/include/ass/ass.h"
-ls -l "$PREFIX/lib/pkgconfig/libass.pc"
+banner_end

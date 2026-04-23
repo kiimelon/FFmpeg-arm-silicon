@@ -2,6 +2,7 @@
 set -euo pipefail
 
 source "$(dirname "$0")/../env.sh"
+source "$(dirname "$0")/../build-static-common.sh"
 
 if [ -z "${PKG_CONFIG_BIN:-}" ]; then
   echo "ERROR: pkg-config not found in ORIGINAL_PATH"
@@ -11,125 +12,141 @@ fi
 NAME="lame"
 SRC_DIR="$SRC/$NAME"
 LOG_FILE="$LOGS/$NAME-build.log"
+LA_FILE="$PREFIX/lib/libmp3lame.la"
+PC_DIR="$PREFIX/lib/pkgconfig"
+PC_FILE="$PC_DIR/mp3lame.pc"
 
-echo "==> Building lame (autotools, no autoreconf)"
+banner_start
+
+echo "==> Building $NAME (autotools)"
 echo "Source : $SRC_DIR"
 echo "Prefix : $PREFIX"
 echo "Log    : $LOG_FILE"
 
-if [ ! -d "$SRC_DIR" ]; then
-  echo "ERROR: source directory not found: $SRC_DIR"
-  exit 1
-fi
+require_any_file "source directory not found or invalid" \
+  "$SRC_DIR/configure" \
+  "$SRC_DIR/config.sub" \
+  "$SRC_DIR/config.guess"
 
+mkdir -p "$LOGS" "$PC_DIR"
 cd "$SRC_DIR"
 
+step "clean previous build state"
+say "make distclean (ignore errors if tree is fresh)"
 make distclean >/dev/null 2>&1 || true
+say "make clean (ignore errors if tree is fresh)"
 make clean >/dev/null 2>&1 || true
+say "remove stale config.cache"
 rm -f config.cache
 
-{
-  echo "ROOT=$ROOT"
-  echo "SRC=$SRC"
-  echo "PREFIX=$PREFIX"
-  echo "PATH=$PATH"
-  echo "ORIGINAL_PATH=$ORIGINAL_PATH"
-  echo "CC=$CC"
-  echo "CFLAGS=$CFLAGS"
-  echo "LDFLAGS=$LDFLAGS"
-  echo "MAKEFLAGS=$MAKEFLAGS"
-  echo "PKG_CONFIG_BIN=$PKG_CONFIG_BIN"
-  echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
-  echo "PKG_CONFIG_LIBDIR=$PKG_CONFIG_LIBDIR"
-  echo
-  echo "===== prepare auxiliary files ====="
-} > "$LOG_FILE"
+log_build_env "$LOG_FILE"
 
-if [ ! -f "./configure" ]; then
-  echo "ERROR: configure script not found in $SRC_DIR" >> "$LOG_FILE"
-  exit 1
-fi
+step "prepare build system"
+say "keeping bundled configure"
+say "refreshing config.sub and config.guess"
 
-AUTOMAKE_SHARE="$(PATH="$ORIGINAL_PATH" automake --print-libdir 2>/dev/null || true)"
-if [ -z "$AUTOMAKE_SHARE" ] || [ ! -d "$AUTOMAKE_SHARE" ]; then
-  echo "ERROR: automake libdir not found" >> "$LOG_FILE"
-  exit 1
-fi
+CONFIG_SUB_SRC=""
+CONFIG_GUESS_SRC=""
 
-for helper in compile missing install-sh depcomp; do
-  if [ ! -f "$helper" ] && [ -f "$AUTOMAKE_SHARE/$helper" ]; then
-    cp -f "$AUTOMAKE_SHARE/$helper" "$helper"
-    chmod +x "$helper" || true
-    echo "copied $helper from $AUTOMAKE_SHARE" >> "$LOG_FILE"
+for candidate in \
+  "/opt/homebrew/share/automake-1.18/config.sub" \
+  "/opt/homebrew/share/automake-1.17/config.sub" \
+  "/opt/homebrew/share/automake-1.16/config.sub" \
+  "/usr/local/share/automake-1.18/config.sub" \
+  "/usr/local/share/automake-1.17/config.sub" \
+  "/usr/local/share/automake-1.16/config.sub"
+do
+  if [ -f "$candidate" ]; then
+    CONFIG_SUB_SRC="$candidate"
+    break
   fi
 done
 
-{
-  echo
-  echo "===== configure ====="
-} >> "$LOG_FILE"
+for candidate in \
+  "/opt/homebrew/share/automake-1.18/config.guess" \
+  "/opt/homebrew/share/automake-1.17/config.guess" \
+  "/opt/homebrew/share/automake-1.16/config.guess" \
+  "/usr/local/share/automake-1.18/config.guess" \
+  "/usr/local/share/automake-1.17/config.guess" \
+  "/usr/local/share/automake-1.16/config.guess"
+do
+  if [ -f "$candidate" ]; then
+    CONFIG_GUESS_SRC="$candidate"
+    break
+  fi
+done
 
-PKG_CONFIG="$PKG_CONFIG_BIN" \
-PKG_CONFIG_PATH="$PKG_CONFIG_PATH" \
-PKG_CONFIG_LIBDIR="$PKG_CONFIG_LIBDIR" \
-CC="$CC" \
-CFLAGS="$CFLAGS" \
-LDFLAGS="$LDFLAGS" \
-./configure \
-  --prefix="$PREFIX" \
-  --enable-static \
-  --disable-shared \
-  --disable-frontend \
-  --disable-decoder \
-  --disable-analyzer-hooks \
-  --disable-gtktest \
-  --disable-cpml \
-  >> "$LOG_FILE" 2>&1
-
-{
-  echo
-  echo "===== build ====="
-} >> "$LOG_FILE"
-
-make >> "$LOG_FILE" 2>&1
-
-{
-  echo
-  echo "===== install ====="
-} >> "$LOG_FILE"
-
-make install >> "$LOG_FILE" 2>&1
-
-echo "==> Verifying lame install"
-
-find "$PREFIX/lib" -maxdepth 1 -name 'libmp3lame*' -print | sort
-
-if [ ! -f "$PREFIX/lib/libmp3lame.a" ]; then
-  echo "ERROR: static library not found: $PREFIX/lib/libmp3lame.a"
+if [ -z "$CONFIG_SUB_SRC" ] || [ -z "$CONFIG_GUESS_SRC" ]; then
+  echo "ERROR: failed to find modern config.sub/config.guess from automake"
   exit 1
 fi
 
-if [ ! -f "$PREFIX/include/lame/lame.h" ] && [ ! -f "$PREFIX/include/lame.h" ]; then
-  echo "ERROR: header not found: $PREFIX/include/lame/lame.h or $PREFIX/include/lame.h"
-  exit 1
-fi
+cp "$CONFIG_SUB_SRC" ./config.sub
+cp "$CONFIG_GUESS_SRC" ./config.guess
+chmod +x ./config.sub ./config.guess
 
-if [ ! -f "$PREFIX/lib/pkgconfig/libmp3lame.pc" ]; then
-  echo "ERROR: pkg-config file not found: $PREFIX/lib/pkgconfig/libmp3lame.pc"
-  exit 1
-fi
+say "config.sub  <- $CONFIG_SUB_SRC"
+say "config.guess <- $CONFIG_GUESS_SRC"
 
-echo
-echo "===== pkg-config verify ====="
-"$PKG_CONFIG_BIN" --modversion libmp3lame
-"$PKG_CONFIG_BIN" --static --libs libmp3lame
+require_file "./configure" "configure script not found"
 
-echo
-echo "==> lame installed successfully"
-ls -l "$PREFIX/lib/libmp3lame.a"
-if [ -f "$PREFIX/include/lame/lame.h" ]; then
-  ls -l "$PREFIX/include/lame/lame.h"
-else
-  ls -l "$PREFIX/include/lame.h"
-fi
-ls -l "$PREFIX/lib/pkgconfig/libmp3lame.pc"
+step "configuring static-only build"
+run_with_heartbeat "configure $NAME" "$LOG_FILE" \
+  env \
+    PKG_CONFIG="$PKG_CONFIG_BIN" \
+    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" \
+    PKG_CONFIG_LIBDIR="$PKG_CONFIG_LIBDIR" \
+    CC="$CC" \
+    CFLAGS="$CFLAGS" \
+    LDFLAGS="$LDFLAGS" \
+    ./configure \
+      --prefix="$PREFIX" \
+      --enable-static \
+      --disable-shared
+done_step "configure"
+
+step "running make"
+run_with_heartbeat "build $NAME" "$LOG_FILE" \
+  make
+done_step "build"
+
+step "running make install"
+run_with_heartbeat "install $NAME" "$LOG_FILE" \
+  make install
+done_step "install"
+
+remove_one_la "$LA_FILE"
+
+step "write pkg-config file"
+cat > "$PC_FILE" <<EOF
+prefix=$PREFIX
+exec_prefix=\${prefix}
+libdir=\${exec_prefix}/lib
+includedir=\${prefix}/include
+
+Name: mp3lame
+Description: LAME MP3 encoder library
+Version: 3.100
+Libs: -L\${libdir} -lmp3lame
+Cflags: -I\${includedir}
+EOF
+echo "==> $PC_FILE written"
+done_step "write pkg-config file"
+
+step "verify installed files"
+find "$PREFIX/lib" -maxdepth 1 \( -name 'libmp3lame*' -o -name 'mp3lame.pc' \) -print | sort
+
+require_file "$PREFIX/lib/libmp3lame.a" "static library not found"
+require_file "$PREFIX/include/lame/lame.h" "header not found"
+require_file "$PC_FILE" "pkg-config file not found"
+ensure_no_file "$LA_FILE" ".la residue still exists"
+
+print_pkg_version mp3lame
+print_pkg_static_libs mp3lame
+
+begin_final_verify
+print_verified_file "$PREFIX/lib/libmp3lame.a"
+print_verified_file "$PREFIX/include/lame/lame.h"
+print_verified_file "$PC_FILE"
+
+banner_end

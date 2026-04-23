@@ -17,7 +17,10 @@ echo "Build  : $BUILD_DIR"
 echo "Prefix : $PREFIX"
 echo "Log    : $LOG_FILE"
 
-require_file "$SRC_DIR/CMakeLists.txt" "source directory not found or invalid"
+if [ ! -d "$SRC_DIR" ]; then
+  echo "ERROR: source directory not found: $SRC_DIR"
+  exit 1
+fi
 
 mkdir -p "$LOGS"
 rm -rf "$BUILD_DIR"
@@ -25,23 +28,30 @@ mkdir -p "$BUILD_DIR"
 
 log_build_env "$LOG_FILE"
 
-cmake_configure \
-  -S "$SRC_DIR" -B "$BUILD_DIR" \
+step "configure cmake build"
+cmake -S "$SRC_DIR" -B "$BUILD_DIR" \
   -DCMAKE_INSTALL_PREFIX="$PREFIX" \
   -DBUILD_SHARED_LIBS=OFF \
   -DBROTLI_DISABLE_TESTS=ON \
   -DBROTLI_BUNDLED_MODE=OFF \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
-  -DCMAKE_FIND_ROOT_PATH="$PREFIX"
+  -DCMAKE_FIND_ROOT_PATH="$PREFIX" \
+  >> "$LOG_FILE" 2>&1
+done_step "configure"
 
-cmake_build
-cmake_install
+step "running make"
+cmake --build "$BUILD_DIR" >> "$LOG_FILE" 2>&1
+done_step "build"
+
+step "running make install"
+cmake --install "$BUILD_DIR" >> "$LOG_FILE" 2>&1
+done_step "install"
 
 echo
 echo "==> no .la residue expected for $NAME"
 
 step "verify installed files"
-find "$PREFIX/lib" -maxdepth 1 \( -name 'libbrotli*' -o -name 'brotli*.pc' -o -name 'libbrotli*.pc' \) -print | sort
+find "$PREFIX/lib" -maxdepth 1 \( -name 'libbrotli*' -o -name 'brotli*.pc' \) -print | sort
 
 require_file "$PREFIX/lib/libbrotlicommon.a" "static library not found"
 require_file "$PREFIX/lib/libbrotlidec.a" "static library not found"

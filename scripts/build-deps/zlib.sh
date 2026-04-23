@@ -2,69 +2,83 @@
 set -euo pipefail
 
 source "$(dirname "$0")/../env.sh"
+source "$(dirname "$0")/../build-static-common.sh"
 
-ZLIB_SRC="$SRC/zlib"
-ZLIB_BUILD_LOG="$LOGS/zlib-build.log"
-ZLIB_INSTALL_LOG="$LOGS/zlib-install.log"
-
-echo "==> Building zlib"
-echo "Source : $ZLIB_SRC"
-echo "Prefix : $PREFIX"
-echo "Logs   : $LOGS"
-
-if [ ! -d "$ZLIB_SRC" ]; then
-  echo "ERROR: source directory not found: $ZLIB_SRC"
+if [ -z "${PKG_CONFIG_BIN:-}" ]; then
+  echo "ERROR: pkg-config not found in ORIGINAL_PATH"
   exit 1
 fi
 
-cd "$ZLIB_SRC"
+NAME="zlib"
+SRC_DIR="$SRC/$NAME"
+LOG_FILE="$LOGS/$NAME-build.log"
 
+banner_start
+
+echo "==> Building $NAME (configure)"
+echo "Source : $SRC_DIR"
+echo "Prefix : $PREFIX"
+echo "Log    : $LOG_FILE"
+
+require_file "$SRC_DIR/configure" "source directory not found or invalid"
+
+mkdir -p "$LOGS"
+cd "$SRC_DIR"
+
+step "clean previous build state"
+say "make distclean (ignore errors if tree is fresh)"
 make distclean >/dev/null 2>&1 || true
+say "make clean (ignore errors if tree is fresh)"
 make clean >/dev/null 2>&1 || true
 
-{
-  echo "ROOT=$ROOT"
-  echo "SRC=$SRC"
-  echo "PREFIX=$PREFIX"
-  echo "PATH=$PATH"
-  echo "ORIGINAL_PATH=$ORIGINAL_PATH"
-  echo "CC=$CC"
-  echo "CXX=$CXX"
-  echo "CFLAGS=$CFLAGS"
-  echo "CXXFLAGS=$CXXFLAGS"
-  echo "LDFLAGS=$LDFLAGS"
-  echo "MAKEFLAGS=$MAKEFLAGS"
-  echo
-  echo "===== configure ====="
-} > "$ZLIB_BUILD_LOG"
+log_build_env "$LOG_FILE"
 
-CHOST=arm-apple-darwin \
-CC="$CC" \
-CFLAGS="$CFLAGS" \
-LDFLAGS="$LDFLAGS" \
-./configure --prefix="$PREFIX" >> "$ZLIB_BUILD_LOG" 2>&1
+step "configuring static-only build"
+run_with_heartbeat "configure $NAME" "$LOG_FILE" \
+  env \
+    CHOST="" \
+    CC="$CC" \
+    CFLAGS="$CFLAGS" \
+    LDFLAGS="$LDFLAGS" \
+    ./configure \
+      --prefix="$PREFIX" \
+      --static
+done_step "configure"
 
-make >> "$ZLIB_BUILD_LOG" 2>&1
-make install > "$ZLIB_INSTALL_LOG" 2>&1
+step "running make"
+run_with_heartbeat "build $NAME" "$LOG_FILE" \
+  make
+done_step "build"
 
-echo "==> Verifying zlib install"
+step "running make install"
+run_with_heartbeat "install $NAME" "$LOG_FILE" \
+  make install
+done_step "install"
 
-if [ ! -f "$PREFIX/lib/libz.a" ]; then
-  echo "ERROR: static library not found: $PREFIX/lib/libz.a"
-  exit 1
+echo
+echo "==> no .la residue expected for $NAME"
+
+step "verify installed files"
+find "$PREFIX/lib" -maxdepth 1 \( -name 'libz*' -o -name 'zlib.pc' \) -print | sort
+
+require_file "$PREFIX/lib/libz.a" "static library not found"
+require_file "$PREFIX/include/zlib.h" "header not found"
+require_any_file "pkg-config file not found" \
+  "$PREFIX/lib/pkgconfig/zlib.pc" \
+  "$PREFIX/share/pkgconfig/zlib.pc"
+
+if [ -f "$PREFIX/lib/pkgconfig/zlib.pc" ]; then
+  ZLIB_PC_FILE="$PREFIX/lib/pkgconfig/zlib.pc"
+else
+  ZLIB_PC_FILE="$PREFIX/share/pkgconfig/zlib.pc"
 fi
 
-if [ ! -f "$PREFIX/include/zlib.h" ]; then
-  echo "ERROR: header not found: $PREFIX/include/zlib.h"
-  exit 1
-fi
+print_pkg_version zlib
+print_pkg_static_libs zlib
 
-if [ ! -f "$PREFIX/lib/pkgconfig/zlib.pc" ]; then
-  echo "ERROR: pkg-config file not found: $PREFIX/lib/pkgconfig/zlib.pc"
-  exit 1
-fi
+begin_final_verify
+print_verified_file "$PREFIX/lib/libz.a"
+print_verified_file "$PREFIX/include/zlib.h"
+print_verified_file "$ZLIB_PC_FILE"
 
-echo "==> zlib installed successfully"
-ls -l "$PREFIX/lib/libz.a"
-ls -l "$PREFIX/include/zlib.h"
-ls -l "$PREFIX/lib/pkgconfig/zlib.pc"
+banner_end

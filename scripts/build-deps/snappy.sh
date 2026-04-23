@@ -2,102 +2,81 @@
 set -euo pipefail
 
 source "$(dirname "$0")/../env.sh"
+source "$(dirname "$0")/../build-static-common.sh"
 
-if [ -z "${CMAKE_BIN:-}" ]; then
-  echo "ERROR: cmake not found in ORIGINAL_PATH"
-  exit 1
-fi
+NAME="snappy"
+SRC_DIR="$SRC/$NAME"
+BUILD_DIR="$BUILD/$NAME"
+LOG_FILE="$LOGS/$NAME-build.log"
+PC_FILE="$PREFIX/lib/pkgconfig/snappy.pc"
 
-SNAPPY_SRC="$SRC/snappy"
-SNAPPY_BUILD_DIR="$BUILD/snappy"
-SNAPPY_BUILD_LOG="$LOGS/snappy-build.log"
-SNAPPY_INSTALL_LOG="$LOGS/snappy-install.log"
+banner_start
 
-echo "==> Building snappy (CMake)"
-echo "Source : $SNAPPY_SRC"
-echo "Build  : $SNAPPY_BUILD_DIR"
+echo "==> Building $NAME (cmake)"
+echo "Source : $SRC_DIR"
+echo "Build  : $BUILD_DIR"
 echo "Prefix : $PREFIX"
-echo "Logs   : $LOGS"
+echo "Log    : $LOG_FILE"
 
-if [ ! -d "$SNAPPY_SRC" ]; then
-  echo "ERROR: source directory not found: $SNAPPY_SRC"
-  exit 1
-fi
+require_cmd_var CMAKE_BIN
+require_file "$SRC_DIR/CMakeLists.txt" "source directory not found or invalid"
 
-rm -rf "$SNAPPY_BUILD_DIR"
-mkdir -p "$SNAPPY_BUILD_DIR"
-mkdir -p "$PREFIX/lib/pkgconfig"
+mkdir -p "$LOGS"
+rm -rf "$BUILD_DIR"
+mkdir -p "$BUILD_DIR"
 
-{
-  echo "ROOT=$ROOT"
-  echo "SRC=$SRC"
-  echo "BUILD=$BUILD"
-  echo "PREFIX=$PREFIX"
-  echo "PATH=$PATH"
-  echo "ORIGINAL_PATH=$ORIGINAL_PATH"
-  echo "CC=$CC"
-  echo "CFLAGS=$CFLAGS"
-  echo "CXX=$CXX"
-  echo "CXXFLAGS=$CXXFLAGS"
-  echo "LDFLAGS=$LDFLAGS"
-  echo "MAKEFLAGS=$MAKEFLAGS"
-  echo "CMAKE_BIN=$CMAKE_BIN"
-  echo
-  echo "===== cmake configure ====="
-} > "$SNAPPY_BUILD_LOG"
+log_build_env "$LOG_FILE"
 
-"$CMAKE_BIN" -S "$SNAPPY_SRC" -B "$SNAPPY_BUILD_DIR" \
+cmake_configure \
+  -S "$SRC_DIR" -B "$BUILD_DIR" \
   -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOSX_DEPLOYMENT_TARGET" \
-  -DCMAKE_OSX_ARCHITECTURES="$ARCH" \
-  -DCMAKE_C_COMPILER="$CC" \
-  -DCMAKE_CXX_COMPILER="$CXX" \
-  -DCMAKE_C_FLAGS="$CFLAGS" \
-  -DCMAKE_CXX_FLAGS="$CXXFLAGS" \
   -DBUILD_SHARED_LIBS=OFF \
   -DSNAPPY_BUILD_TESTS=OFF \
   -DSNAPPY_BUILD_BENCHMARKS=OFF \
-  >> "$SNAPPY_BUILD_LOG" 2>&1
+  -DCMAKE_PREFIX_PATH="$PREFIX" \
+  -DCMAKE_FIND_ROOT_PATH="$PREFIX"
 
-"$CMAKE_BIN" --build "$SNAPPY_BUILD_DIR" >> "$SNAPPY_BUILD_LOG" 2>&1
+cmake_build
+cmake_install
 
-{
-  echo "===== cmake install ====="
-} > "$SNAPPY_INSTALL_LOG"
+echo
+echo "==> no .la residue expected for $NAME"
 
-"$CMAKE_BIN" --install "$SNAPPY_BUILD_DIR" >> "$SNAPPY_INSTALL_LOG" 2>&1
+step "ensure pkg-config file"
+mkdir -p "$PREFIX/lib/pkgconfig"
 
-# Provide pkg-config metadata if upstream does not install one.
-if [ ! -f "$PREFIX/lib/pkgconfig/snappy.pc" ]; then
-  cat > "$PREFIX/lib/pkgconfig/snappy.pc" <<EOF
+if [ ! -f "$PC_FILE" ]; then
+  cat > "$PC_FILE" <<EOF
 prefix=$PREFIX
 exec_prefix=\${prefix}
-libdir=\${prefix}/lib
+libdir=\${exec_prefix}/lib
 includedir=\${prefix}/include
 
 Name: snappy
-Description: fast compressor/decompressor
+Description: Fast compressor/decompressor library
 Version: 1.2.2
 Libs: -L\${libdir} -lsnappy
 Cflags: -I\${includedir}
 EOF
+  echo "==> $PC_FILE written"
+else
+  echo "==> $PC_FILE already installed"
 fi
+done_step "ensure pkg-config file"
 
-echo "==> Verifying snappy install"
+step "verify installed files"
+find "$PREFIX/lib" -maxdepth 1 \( -name 'libsnappy*' -o -name 'snappy.pc' \) -print | sort
 
-if [ ! -f "$PREFIX/include/snappy.h" ]; then
-  echo "ERROR: header not found: $PREFIX/include/snappy.h"
-  exit 1
-fi
+require_file "$PREFIX/lib/libsnappy.a" "static library not found"
+require_file "$PREFIX/include/snappy.h" "header not found"
+require_file "$PC_FILE" "pkg-config file not found"
 
-if [ ! -f "$PREFIX/lib/pkgconfig/snappy.pc" ]; then
-  echo "ERROR: pkg-config file not found: $PREFIX/lib/pkgconfig/snappy.pc"
-  exit 1
-fi
+print_pkg_version snappy
+print_pkg_static_libs snappy
 
-echo "==> snappy installed successfully"
-ls -l "$PREFIX/include/snappy.h"
-ls -l "$PREFIX/lib/pkgconfig/snappy.pc"
+begin_final_verify
+print_verified_file "$PREFIX/lib/libsnappy.a"
+print_verified_file "$PREFIX/include/snappy.h"
+print_verified_file "$PC_FILE"
 
-find "$PREFIX/lib" -maxdepth 1 \( -name 'libsnappy*.a' -o -name 'libsnappy*.dylib' \) -print
+banner_end

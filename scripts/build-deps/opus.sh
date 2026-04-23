@@ -2,113 +2,60 @@
 set -euo pipefail
 
 source "$(dirname "$0")/../env.sh"
-
-if [ -z "${PKG_CONFIG_BIN:-}" ]; then
-  echo "ERROR: pkg-config not found in ORIGINAL_PATH"
-  exit 1
-fi
+source "$(dirname "$0")/../build-static-common.sh"
 
 NAME="opus"
 SRC_DIR="$SRC/$NAME"
+BUILD_DIR="$BUILD/$NAME"
 LOG_FILE="$LOGS/$NAME-build.log"
+LA_FILE="$PREFIX/lib/libopus.la"
+PC_FILE="$PREFIX/lib/pkgconfig/opus.pc"
 
-echo "==> Building opus (autotools)"
+banner_start
+
+echo "==> Building $NAME (cmake)"
 echo "Source : $SRC_DIR"
+echo "Build  : $BUILD_DIR"
 echo "Prefix : $PREFIX"
 echo "Log    : $LOG_FILE"
 
-if [ ! -d "$SRC_DIR" ]; then
-  echo "ERROR: source directory not found: $SRC_DIR"
-  exit 1
-fi
+require_file "$SRC_DIR/CMakeLists.txt" "source directory not found or invalid"
 
-cd "$SRC_DIR"
+mkdir -p "$LOGS"
+rm -rf "$BUILD_DIR"
+mkdir -p "$BUILD_DIR"
 
-make distclean >/dev/null 2>&1 || true
-make clean >/dev/null 2>&1 || true
+log_build_env "$LOG_FILE"
 
-{
-  echo "ROOT=$ROOT"
-  echo "SRC=$SRC"
-  echo "PREFIX=$PREFIX"
-  echo "PATH=$PATH"
-  echo "ORIGINAL_PATH=$ORIGINAL_PATH"
-  echo "CC=$CC"
-  echo "CFLAGS=$CFLAGS"
-  echo "LDFLAGS=$LDFLAGS"
-  echo "MAKEFLAGS=$MAKEFLAGS"
-  echo "PKG_CONFIG_BIN=$PKG_CONFIG_BIN"
-  echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
-  echo "PKG_CONFIG_LIBDIR=$PKG_CONFIG_LIBDIR"
-  echo
-  echo "===== autoreconf ====="
-} > "$LOG_FILE"
+cmake_configure \
+  -S "$SRC_DIR" -B "$BUILD_DIR" \
+  -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+  -DBUILD_SHARED_LIBS=OFF \
+  -DOPUS_BUILD_PROGRAMS=OFF \
+  -DOPUS_BUILD_TESTING=OFF \
+  -DBUILD_TESTING=OFF \
+  -DCMAKE_PREFIX_PATH="$PREFIX" \
+  -DCMAKE_FIND_ROOT_PATH="$PREFIX"
 
-if [ -f "autogen.sh" ]; then
-  PATH="$ORIGINAL_PATH" ./autogen.sh >> "$LOG_FILE" 2>&1
-elif [ -f "configure.ac" ] || [ -f "configure.in" ]; then
-  PATH="$ORIGINAL_PATH" autoreconf -fi >> "$LOG_FILE" 2>&1
-fi
+cmake_build
+cmake_install
 
-{
-  echo
-  echo "===== configure ====="
-} >> "$LOG_FILE"
+remove_one_la "$LA_FILE"
 
-PKG_CONFIG="$PKG_CONFIG_BIN" \
-PKG_CONFIG_PATH="$PKG_CONFIG_PATH" \
-PKG_CONFIG_LIBDIR="$PKG_CONFIG_LIBDIR" \
-CC="$CC" \
-CFLAGS="$CFLAGS" \
-LDFLAGS="$LDFLAGS" \
-./configure \
-  --prefix="$PREFIX" \
-  --enable-static \
-  --disable-shared \
-  --disable-extra-programs \
-  --disable-doc \
-  >> "$LOG_FILE" 2>&1
-
-{
-  echo
-  echo "===== build ====="
-} >> "$LOG_FILE"
-
-make >> "$LOG_FILE" 2>&1
-
-{
-  echo
-  echo "===== install ====="
-} >> "$LOG_FILE"
-
-make install >> "$LOG_FILE" 2>&1
-
-echo "==> Verifying opus install"
-
+step "verify installed files"
 find "$PREFIX/lib" -maxdepth 1 -name 'libopus*' -print | sort
 
-if [ ! -f "$PREFIX/lib/libopus.a" ]; then
-  echo "ERROR: static library not found: $PREFIX/lib/libopus.a"
-  exit 1
-fi
+require_file "$PREFIX/lib/libopus.a" "static library not found"
+require_file "$PREFIX/include/opus/opus.h" "header not found"
+require_file "$PC_FILE" "pkg-config file not found"
+ensure_no_file "$LA_FILE" ".la residue still exists"
 
-if [ ! -f "$PREFIX/include/opus/opus.h" ]; then
-  echo "ERROR: header not found: $PREFIX/include/opus/opus.h"
-  exit 1
-fi
+print_pkg_version opus
+print_pkg_static_libs opus
 
-if [ ! -f "$PREFIX/lib/pkgconfig/opus.pc" ]; then
-  echo "ERROR: pkg-config file not found: $PREFIX/lib/pkgconfig/opus.pc"
-  exit 1
-fi
+print_verified_files \
+  "$PREFIX/lib/libopus.a" \
+  "$PREFIX/include/opus/opus.h" \
+  "$PC_FILE"
 
-echo
-echo "===== pkg-config verify ====="
-"$PKG_CONFIG_BIN" --modversion opus
-"$PKG_CONFIG_BIN" --static --libs opus
-
-echo
-echo "==> opus installed successfully"
-ls -l "$PREFIX/lib/libopus.a"
-ls -l "$PREFIX/include/opus/opus.h"
-ls -l "$PREFIX/lib/pkgconfig/opus.pc"
+banner_end
