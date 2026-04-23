@@ -3,6 +3,42 @@ set -euo pipefail
 
 source "$(dirname "$0")/env.sh"
 
+# FFmpeg source
+FFMPEG_VERSION="8.1"
+FFMPEG_TARBALL="ffmpeg-${FFMPEG_VERSION}.tar.xz"
+FFMPEG_URL="https://ffmpeg.org/releases/${FFMPEG_TARBALL}"
+FFMPEG_SRC="$SRC/ffmpeg-${FFMPEG_VERSION}"
+
+fetch_ffmpeg() {
+  mkdir -p "$SRC"
+
+  if [[ -d "$FFMPEG_SRC" ]]; then
+    echo "FFmpeg source already exists: $FFMPEG_SRC"
+    return 0
+  fi
+
+  echo "FFmpeg source not found: $FFMPEG_SRC"
+  echo "Fetching $FFMPEG_TARBALL"
+
+  cd "$SRC"
+
+  if [[ ! -f "$FFMPEG_TARBALL" ]]; then
+    curl -L -o "$FFMPEG_TARBALL" "$FFMPEG_URL"
+  else
+    echo "Tarball already exists: $SRC/$FFMPEG_TARBALL"
+  fi
+
+  echo "Extracting $FFMPEG_TARBALL"
+  tar -xf "$FFMPEG_TARBALL"
+
+  if [[ ! -d "$FFMPEG_SRC" ]]; then
+    echo "ERROR: FFmpeg source extraction failed: $FFMPEG_SRC not found"
+    exit 1
+  fi
+}
+
+fetch_ffmpeg
+
 if [ -z "${PKG_CONFIG_BIN:-}" ]; then
   echo "ERROR: pkg-config not found in ORIGINAL_PATH"
   exit 1
@@ -27,7 +63,7 @@ REQUIRED_PKG_PAIRS=(
   "ogg:ogg"
   "opus:opus"
   "vorbis:vorbis"
-  "libmp3lame:libmp3lame"
+  "libmp3lame:mp3lame"
   "libwebp:libwebp"
   "openjpeg:libopenjp2"
   "theora:theora"

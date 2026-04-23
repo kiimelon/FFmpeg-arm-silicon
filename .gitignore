@@ -14,3 +14,8 @@ logs/*
 
 .DS_Store
 
+
+# Static build outputs
+build-static/
+local-static/
+logs-static/
