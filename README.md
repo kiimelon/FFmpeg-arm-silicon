@@ -1,32 +1,35 @@
-## What this project does 
-This repository builds `ffmpeg`, `ffprobe`, and `ffplay` for Apple Silicon macOS with one command: 
-```bash
-bash scripts/build-all-static.sh
-``` 
+## What this project does
+
+This repository provides prebuilt `ffmpeg`, `ffprobe`, and `ffplay` binaries for Apple Silicon macOS.
+
 It is useful when you need to bundle these tools inside a macOS app.
 
-## Quick start 
-- Open Terminal.
+Most users can download [FFmpeg-arm-silicon-Tools-20260424.zip](https://github.com/kiimelon/FFmpeg-arm-silicon/releases/tag/0.5.0) from Releases.
 
-- Install required build tools:
+If you want to rebuild the tools from source, follow the steps in the `Quick start` section below.
+
+## Quick start 
+1. Open Terminal.
+
+2. Install required build tools:
 
 ```bash
 brew install cmake meson ninja autoconf automake libtool pkg-config
 ```
 
-- Clone the repository: 
+3. Clone the repository: 
 
 ```bash 
 git clone https://github.com/kiimelon/FFmpeg-arm-silicon.git  
 ```
 
-- Enter the project directory: 
+4. Enter the project directory: 
 
 ```bash 
 cd FFmpeg-arm-silicon
 ```
 
-- Run the full build pipeline:  
+5. Run the full build pipeline:  
 
 ```bash 
 bash scripts/build-all-static.sh 
