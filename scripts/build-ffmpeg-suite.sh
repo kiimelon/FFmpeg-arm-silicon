@@ -44,9 +44,6 @@ if [ -z "${PKG_CONFIG_BIN:-}" ]; then
   exit 1
 fi
 
-FFMPEG_VERSION="ffmpeg-8.1"
-FFMPEG_SRC="$SRC/$FFMPEG_VERSION"
-
 CONFIG_LOG="$LOGS/ffmpeg-configure.log"
 MAKE_LOG="$LOGS/ffmpeg-make.log"
 INSTALL_LOG="$LOGS/ffmpeg-install.log"
