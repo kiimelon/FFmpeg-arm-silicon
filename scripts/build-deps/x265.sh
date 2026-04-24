@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-source "$(dirname "$0")/../env.sh"
-source "$(dirname "$0")/../build-static-common.sh"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+source "$SCRIPT_DIR/../env.sh"
+source "$SCRIPT_DIR/../build-common.sh"
 
 NAME="x265"
 SRC_DIR="$SRC/$NAME"
@@ -11,13 +13,47 @@ BUILD_DIR="$BUILD/$NAME"
 LOG_FILE="$LOGS/$NAME-build.log"
 CMAKELISTS="$SOURCE_DIR/CMakeLists.txt"
 
+patch_x265_cmake_policy() {
+  step "Patch x265 source for CMake 4 compatibility"
+
+  if [ ! -f "$CMAKELISTS" ]; then
+    fail_step "x265 CMakeLists.txt not found: $CMAKELISTS"
+    exit 1
+  fi
+
+  python3 - "$CMAKELISTS" <<'PY'
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+text = p.read_text()
+original = text
+
+replacements = {
+    "cmake_policy(SET CMP0025 OLD)": "cmake_policy(SET CMP0025 NEW)",
+    "cmake_policy(SET CMP0054 OLD)": "cmake_policy(SET CMP0054 NEW)",
+    "cmake_minimum_required(VERSION 2.8.9)": "cmake_minimum_required(VERSION 3.5)",
+    "cmake_minimum_required(VERSION 2.8)": "cmake_minimum_required(VERSION 3.5)",
+}
+
+for old, new in replacements.items():
+    text = text.replace(old, new)
+
+if text != original:
+    p.write_text(text)
+PY
+
+  say "x265 CMakeLists patched for current CMake"
+  done_step "patch x265 source for CMake 4 compatibility"
+}
+
 banner_start
 
-echo "==> Building $NAME (cmake)"
-echo "Source : $SOURCE_DIR"
-echo "Build  : $BUILD_DIR"
-echo "Prefix : $PREFIX"
-echo "Log    : $LOG_FILE"
+kv "Build system" "cmake"
+kv "Source" "$SOURCE_DIR"
+kv "Build" "$BUILD_DIR"
+kv "Prefix" "$PREFIX"
+kv "Log" "$LOG_FILE"
 
 require_cmd_var CMAKE_BIN
 require_file "$CMAKELISTS" "source directory not found or invalid"
@@ -28,25 +64,9 @@ mkdir -p "$BUILD_DIR"
 
 log_build_env "$LOG_FILE"
 
-step "patch source for CMake 4 compatibility"
-python3 - <<'PY'
-from pathlib import Path
-p = Path(r"/Users/keelon/FFmpeg-arm-silicon/src/x265/source/CMakeLists.txt")
-text = p.read_text()
-original = text
+patch_x265_cmake_policy
 
-text = text.replace("cmake_policy(SET CMP0025 OLD)", "cmake_policy(SET CMP0025 NEW)")
-text = text.replace("cmake_policy(SET CMP0054 OLD)", "cmake_policy(SET CMP0054 NEW)")
-text = text.replace("cmake_minimum_required(VERSION 2.8.9)", "cmake_minimum_required(VERSION 3.5)")
-text = text.replace("cmake_minimum_required(VERSION 2.8)", "cmake_minimum_required(VERSION 3.5)")
-
-if text != original:
-    p.write_text(text)
-PY
-echo "==> x265 CMakeLists patched for current CMake"
-done_step "patch source for CMake 4 compatibility"
-
-step "configure cmake build"
+step "Configure CMake build"
 run_with_heartbeat "configure $NAME" "$LOG_FILE" \
   "$CMAKE_BIN" -S "$SOURCE_DIR" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
@@ -62,20 +82,19 @@ run_with_heartbeat "configure $NAME" "$LOG_FILE" \
     -DENABLE_CSV=OFF
 done_step "configure"
 
-step "running make"
+step "Build CMake target"
 run_with_heartbeat "build $NAME" "$LOG_FILE" \
   "$CMAKE_BIN" --build "$BUILD_DIR" --parallel "$NCPU"
 done_step "build"
 
-step "running make install"
+step "Install CMake target"
 run_with_heartbeat "install $NAME" "$LOG_FILE" \
   "$CMAKE_BIN" --install "$BUILD_DIR"
 done_step "install"
 
-echo
-echo "==> no .la residue expected for $NAME"
+say "no .la residue expected for $NAME"
 
-step "verify installed files"
+step "Verify installed files"
 find "$PREFIX/lib" -maxdepth 1 \( -name 'libx265*' -o -name 'x265.pc' -o -name 'libx265.la' \) -print | sort
 
 require_file "$PREFIX/lib/libx265.a" "static library not found"
