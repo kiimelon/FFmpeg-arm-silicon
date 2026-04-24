@@ -70,9 +70,6 @@ guard let ffmpegPath = Bundle.main.path(
 
 \* Third-party libraries fetched by the build scripts keep their own licenses.
 
-
-## Planned Dependency Expansion
-
 ## Planned Dependency Expansion
 
 | Library | Purpose |
