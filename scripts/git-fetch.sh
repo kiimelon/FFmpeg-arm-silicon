@@ -1,22 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-source "$(dirname "$0")/env.sh"
-source "$(dirname "$0")/build-static-common.sh"
-source "$(dirname "$0")/deps-list.sh"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+source "$SCRIPT_DIR/env.sh"
+source "$SCRIPT_DIR/build-common.sh"
+source "$SCRIPT_DIR/deps-list.sh"
 
 NAME="git-fetch"
 LOG_FILE="$LOGS/git-fetch.log"
-
-fetch_banner_start() {
-  echo
-  echo "***** fetch lib sources start *****"
-}
-
-fetch_banner_end() {
-  echo
-  echo "***** fetch lib sources end *****"
-}
 
 git_bin() {
   PATH="$ORIGINAL_PATH" command -v git
@@ -25,6 +17,7 @@ git_bin() {
 remote_has_branch() {
   local repo_url="$1"
   local ref="$2"
+
   "$(git_bin)" ls-remote --exit-code --heads "$repo_url" "$ref" >/dev/null 2>&1
 }
 
@@ -58,6 +51,7 @@ detect_remote_ref_type() {
 
 current_branch_name() {
   local repo_dir="$1"
+
   (
     cd "$repo_dir"
     "$(git_bin)" symbolic-ref --quiet --short HEAD 2>/dev/null || true
@@ -67,6 +61,7 @@ current_branch_name() {
 head_matches_tag() {
   local repo_dir="$1"
   local tag_name="$2"
+
   (
     cd "$repo_dir"
 
@@ -83,6 +78,7 @@ head_matches_tag() {
 local_has_ref() {
   local repo_dir="$1"
   local ref="$2"
+
   (
     cd "$repo_dir"
     "$(git_bin)" rev-parse --verify "$ref" >/dev/null 2>&1
@@ -99,21 +95,21 @@ checkout_target_ref() {
 
     case "$ref_type" in
       branch)
-        echo "[fetch] fetching branch $ref"
+        say "fetching branch $ref"
         "$(git_bin)" fetch --depth 1 origin "$ref" 2>&1 | tee -a "$LOG_FILE"
 
-        echo "[fetch] switching to branch $ref"
+        say "switching to branch $ref"
         "$(git_bin)" checkout -B "$ref" "origin/$ref" 2>&1 | tee -a "$LOG_FILE"
         ;;
       tag)
-        echo "[fetch] fetching tag $ref"
+        say "fetching tag $ref"
         "$(git_bin)" fetch --depth 1 origin "refs/tags/$ref:refs/tags/$ref" 2>&1 | tee -a "$LOG_FILE"
 
-        echo "[fetch] switching to tag $ref"
+        say "switching to tag $ref"
         "$(git_bin)" checkout --detach "$ref" 2>&1 | tee -a "$LOG_FILE"
         ;;
       *)
-        echo "ERROR: unsupported ref type: $ref_type"
+        fail_step "unsupported ref type: $ref_type"
         exit 1
         ;;
     esac
@@ -126,10 +122,10 @@ clone_target_ref() {
   local ref="$3"
 
   if [ -n "$ref" ]; then
-    echo "[fetch] cloning with --branch $ref"
+    say "cloning with --branch $ref"
     "$(git_bin)" clone "$repo_url" "$dest_dir" --branch "$ref" --depth 1 2>&1 | tee -a "$LOG_FILE"
   else
-    echo "[fetch] cloning default branch"
+    say "cloning default branch"
     "$(git_bin)" clone "$repo_url" "$dest_dir" --depth 1 2>&1 | tee -a "$LOG_FILE"
   fi
 }
@@ -142,19 +138,22 @@ sync_git_dep() {
   local dest_dir="$SRC/$dep_name"
   local ref_type=""
 
-  step "fetch source: $dep_name"
-  echo "[fetch] repo   : $repo_url"
-  echo "[fetch] dest   : $dest_dir"
-  echo "[fetch] target : ${ref:-default}"
+  step "Fetch source: $dep_name"
+
+  say "repo   : $repo_url"
+  say "dest   : $dest_dir"
+  say "target : ${ref:-default}"
 
   if [ -n "$ref" ]; then
-    echo "[fetch] detecting remote ref type"
+    say "detecting remote ref type"
+
     if ! ref_type="$(detect_remote_ref_type "$repo_url" "$ref")"; then
-      echo "ERROR: target ref not found for $dep_name: $ref"
-      echo "ERROR: repo: $repo_url"
+      fail_step "target ref not found for $dep_name: $ref"
+      say "repo: $repo_url"
       exit 1
     fi
-    echo "[fetch] resolved ref type: $ref_type"
+
+    say "resolved ref type: $ref_type"
   fi
 
   if [ ! -e "$dest_dir" ]; then
@@ -164,14 +163,14 @@ sync_git_dep() {
   fi
 
   if [ ! -d "$dest_dir/.git" ]; then
-    echo "ERROR: destination exists but is not a git repo: $dest_dir"
+    fail_step "destination exists but is not a git repo: $dest_dir"
     exit 1
   fi
 
-  echo "[fetch] existing repo found"
+  say "existing repo found"
 
   if [ -z "$ref" ]; then
-    echo "[fetch] no target ref configured, keeping existing checkout"
+    say "no target ref configured, keeping existing checkout"
     done_step "fetch source: $dep_name"
     return 0
   fi
@@ -180,29 +179,30 @@ sync_git_dep() {
     branch)
       local current_branch
       current_branch="$(current_branch_name "$dest_dir")"
-      echo "[fetch] current branch: ${current_branch:-detached}"
+
+      say "current branch: ${current_branch:-detached}"
 
       if [ "$current_branch" = "$ref" ]; then
-        echo "[fetch] branch already matches target, no switch needed"
+        say "branch already matches target, no switch needed"
         done_step "fetch source: $dep_name"
         return 0
       fi
 
-      echo "[fetch] branch mismatch, switching to $ref"
+      say "branch mismatch, switching to $ref"
       checkout_target_ref "$dest_dir" "$ref_type" "$ref"
       ;;
     tag)
       if local_has_ref "$dest_dir" "$ref" && head_matches_tag "$dest_dir" "$ref"; then
-        echo "[fetch] tag already matches target, no switch needed"
+        say "tag already matches target, no switch needed"
         done_step "fetch source: $dep_name"
         return 0
       fi
 
-      echo "[fetch] tag mismatch, switching to $ref"
+      say "tag mismatch, switching to $ref"
       checkout_target_ref "$dest_dir" "$ref_type" "$ref"
       ;;
     *)
-      echo "ERROR: unresolved ref type for $dep_name"
+      fail_step "unresolved ref type for $dep_name"
       exit 1
       ;;
   esac
@@ -210,11 +210,10 @@ sync_git_dep() {
   done_step "fetch source: $dep_name"
 }
 
-fetch_banner_start
+stage "Stage 1: Fetching dependency sources"
 
-echo "==> Fetching library sources (git)"
-echo "Source root : $SRC"
-echo "Log         : $LOG_FILE"
+kv "Source root" "$SRC"
+kv "Log file" "$LOG_FILE"
 
 mkdir -p "$SRC" "$LOGS"
 : > "$LOG_FILE"
@@ -228,12 +227,14 @@ mkdir -p "$SRC" "$LOGS"
   echo
 } >> "$LOG_FILE"
 
-step "check required tool"
+step "Check required tool"
+
 if ! PATH="$ORIGINAL_PATH" command -v git >/dev/null 2>&1; then
-  echo "ERROR: git not found in ORIGINAL_PATH"
+  fail_step "git not found in ORIGINAL_PATH"
   exit 1
 fi
-echo "[fetch] git: $(git_bin)"
+
+say "git: $(git_bin)"
 done_step "check required tool"
 
 for dep in "${DEPS_LIST[@]}"; do
@@ -241,7 +242,14 @@ for dep in "${DEPS_LIST[@]}"; do
   sync_git_dep "$dep_name" "$repo_url" "$ref"
 done
 
-step "final verify"
-find "$SRC" -maxdepth 1 -mindepth 1 -type d | sort
+step "Fetch summary"
 
-fetch_banner_end
+for dep in "${DEPS_LIST[@]}"; do
+  IFS='|' read -r dep_name repo_url ref <<< "$dep"
+  printf "  %-16s %s\n" "$dep_name" "$SRC/$dep_name"
+done
+
+echo
+echo "Total dependencies: ${#DEPS_LIST[@]}"
+
+stage "Fetching dependency sources completed"

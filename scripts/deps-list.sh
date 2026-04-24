@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 
-# name|repo_url|ref
+# ==================================================
+# Dependency source list
+# ==================================================
+#
+# Format:
+#   name|repo_url|ref
+#
+# This list is the source index used by git-fetch.sh.
+# New dependencies can be appended to the end.
+#
+# Build order is NOT controlled by this list.
+# Build order is controlled by DEPS_ORDER below.
+# ==================================================
+
 DEPS_LIST=(
   "zlib|https://github.com/madler/zlib.git|v1.3.1"
   "brotli|https://github.com/google/brotli.git|v1.1.0"
@@ -27,4 +40,128 @@ DEPS_LIST=(
   "x264|https://code.videolan.org/videolan/x264.git|stable"
   "x265|https://bitbucket.org/multicoreware/x265_git.git|4.1"
   "zimg|https://github.com/sekrit-twc/zimg.git|release-3.0.6"
+)
+
+# ==================================================
+# Dependency groups
+# ==================================================
+#
+# DEPS_GROUP_IDS:
+#   Internal group IDs used by scripts.
+#
+# DEPS_GROUP_NAMES:
+#   Human-readable group names used in logs.
+#
+# The index positions of DEPS_GROUP_IDS and DEPS_GROUP_NAMES
+# must stay aligned.
+# ==================================================
+
+DEPS_GROUP_IDS=(
+  SUPPORT
+  AUDIO
+  VIDEO
+  SUBTITLE
+  IMAGE_PROCESSING
+  UTILITY
+  PLAYER
+)
+
+DEPS_GROUP_NAMES=(
+  "Support libs"
+  "Audio chain"
+  "Video chain"
+  "Subtitle chain"
+  "Image / video processing chain"
+  "Utility / integration libs"
+  "Player / UI"
+)
+
+# ==================================================
+# Dependency build order by group
+# ==================================================
+#
+# This order is authoritative for build-static-deps.sh.
+# Put each dependency after the libraries it depends on.
+# Append new dependency names to the proper group.
+# ==================================================
+
+# Basic compression / support libs
+DEPS_ORDER_SUPPORT=(
+  zlib
+  bzip2
+  brotli
+  snappy
+)
+
+# Audio chain
+#
+# libvorbis depends on libogg.
+# libtheora also depends on libogg, but it is grouped under video.
+DEPS_ORDER_AUDIO=(
+  libogg
+  opus
+  libvorbis
+  lame
+  twolame
+  libsoxr
+)
+
+# Video chain
+#
+# libtheora depends on libogg, so AUDIO must run before VIDEO.
+DEPS_ORDER_VIDEO=(
+  dav1d
+  x264
+  x265
+  libvpx
+  libtheora
+)
+
+# Subtitle chain
+#
+# libass depends on freetype, fribidi, and harfbuzz.
+DEPS_ORDER_SUBTITLE=(
+  freetype
+  fribidi
+  harfbuzz
+  libass
+)
+
+# Image / video processing chain
+#
+# zimg is a video/image processing library used for scaling,
+# colorspace conversion, pixel format handling, and dithering.
+DEPS_ORDER_IMAGE_PROCESSING=(
+  libwebp
+  openjpeg
+  zimg
+)
+
+# Utility / integration libs
+DEPS_ORDER_UTILITY=(
+  libxml2
+  libzmq
+)
+
+# Player / UI dependency for ffplay
+DEPS_ORDER_PLAYER=(
+  sdl2
+)
+
+# ==================================================
+# Final flattened build order
+# ==================================================
+#
+# build-static-deps.sh can use this array when it does not need
+# group-aware output.
+# ==================================================
+
+DEPS_ORDER=(
+  "${DEPS_ORDER_SUPPORT[@]}"
+  "${DEPS_ORDER_AUDIO[@]}"
+  "${DEPS_ORDER_VIDEO[@]}"
+  "${DEPS_ORDER_SUBTITLE[@]}"
+  "${DEPS_ORDER_IMAGE_PROCESSING[@]}"
+  "${DEPS_ORDER_UTILITY[@]}"
+  "${DEPS_ORDER_PLAYER[@]}"
 )
