@@ -59,6 +59,38 @@ banner_end() {
 }
 
 # ==================================================
+# File display helpers
+# ==================================================
+
+display_path() {
+  local file="$1"
+
+  if [[ "${ROOT:-}" != "" && "$file" == "$ROOT/"* ]]; then
+    echo "${ROOT##*/}/${file#$ROOT/}"
+  else
+    echo "$file"
+  fi
+}
+
+file_size_mb() {
+  local file="$1"
+  local bytes=""
+
+  bytes="$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null)"
+
+  awk -v b="$bytes" 'BEGIN { printf "%.2fM", b / 1024 / 1024 }'
+}
+
+print_file_with_size() {
+  local file="$1"
+  local path=""
+
+  path="$(display_path "$file")"
+
+  printf "  %-72s %10s\n" "$path" "$(file_size_mb "$file")"
+}
+
+# ==================================================
 # Required checks
 # ==================================================
 
@@ -232,7 +264,7 @@ begin_final_verify() {
 print_verified_file() {
   local file="$1"
 
-  ls -l "$file"
+  print_file_with_size "$file"
 }
 
 print_first_existing_file() {
@@ -240,7 +272,7 @@ print_first_existing_file() {
 
   for f in "$@"; do
     if [ -f "$f" ]; then
-      ls -l "$f"
+      print_file_with_size "$f"
       return 0
     fi
   done
@@ -258,12 +290,12 @@ print_verified_files() {
 
   local f
   for f in "$@"; do
-    ls -l "$f"
+    print_file_with_size "$f"
   done
 }
 
 # ==================================================
-# Command runner
+# Command runners
 # ==================================================
 
 run_with_heartbeat() {
@@ -291,6 +323,48 @@ run_with_heartbeat() {
 
   kill "$heartbeat_pid" >/dev/null 2>&1 || true
   wait "$heartbeat_pid" 2>/dev/null || true
+
+  return "$status"
+}
+
+run_with_log_tail() {
+  local label="$1"
+  local logfile="$2"
+  shift 2
+
+  local interval=3
+  local progress_pid=""
+  local cmd_pid=""
+  local status=0
+
+  (
+    local last_line=""
+
+    while true; do
+      sleep "$interval"
+
+      if [ -f "$logfile" ]; then
+        last_line="$(tail -n 1 "$logfile" | tr -d '\r' || true)"
+
+        if [ -n "$last_line" ]; then
+          echo "[$NAME] latest: $last_line"
+        else
+          echo "[$NAME] running: $label ..."
+        fi
+      else
+        echo "[$NAME] running: $label ..."
+      fi
+    done
+  ) &
+  progress_pid=$!
+
+  "$@" >> "$logfile" 2>&1 &
+  cmd_pid=$!
+
+  wait "$cmd_pid" || status=$?
+
+  kill "$progress_pid" >/dev/null 2>&1 || true
+  wait "$progress_pid" 2>/dev/null || true
 
   return "$status"
 }

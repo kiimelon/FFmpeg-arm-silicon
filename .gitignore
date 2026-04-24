@@ -19,3 +19,6 @@ logs/*
 build-static/
 local-static/
 logs-static/
+
+# Exported app tools
+Tools/
