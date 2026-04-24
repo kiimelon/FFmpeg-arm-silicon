@@ -1,64 +1,136 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-source "$(dirname "$0")/../env.sh"
-source "$(dirname "$0")/../build-static-common.sh"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-if [ -z "${PKG_CONFIG_BIN:-}" ]; then
-  echo "ERROR: pkg-config not found in ORIGINAL_PATH"
-  exit 1
-fi
+source "$SCRIPT_DIR/../env.sh"
+source "$SCRIPT_DIR/../build-common.sh"
 
 NAME="twolame"
 SRC_DIR="$SRC/$NAME"
+BUILD_DIR="$BUILD/$NAME"
 LOG_FILE="$LOGS/$NAME-build.log"
-LA_FILE="$PREFIX/lib/libtwolame.la"
-PC_FILE="$PREFIX/lib/pkgconfig/twolame.pc"
+
+patch_twolame_asciidoc_check() {
+  step "Patch twolame asciidoc maintainer check"
+
+  require_file "./configure" "configure script not found"
+
+  python3 - <<'PY'
+from pathlib import Path
+
+p = Path("configure")
+text = p.read_text()
+
+old = 'as_fn_error $? "asciidoc is not available and maintainer mode is enabled" "$LINENO" 5'
+new = ': # asciidoc maintainer check bypassed for static library build'
+
+count = text.count(old)
+print(f"asciidoc hard error matches: {count}")
+
+if count == 0:
+    raise SystemExit("ERROR: asciidoc maintainer hard error not found in configure")
+
+text = text.replace(old, new)
+p.write_text(text)
+print("patched configure asciidoc maintainer check")
+PY
+
+  if grep -n 'as_fn_error.*asciidoc is not available and maintainer mode is enabled' ./configure; then
+    fail_step "twolame asciidoc hard error still exists after patch"
+    exit 1
+  fi
+
+  if ! grep -n "bypassed for static library build" ./configure >> "$LOG_FILE"; then
+    fail_step "twolame asciidoc bypass marker not found after patch"
+    exit 1
+  fi
+
+  done_step "patch twolame asciidoc maintainer check"
+}
+
+patch_twolame_makefile_docs() {
+  step "Patch twolame Makefile documentation targets"
+
+  local doc_makefile="./doc/Makefile"
+
+  require_file "$doc_makefile" "doc Makefile not found after configure"
+
+  python3 - <<'PY'
+from pathlib import Path
+
+p = Path("doc/Makefile")
+text = p.read_text()
+original = text
+
+replacements = {
+    "dist_man_MANS = twolame.1": "dist_man_MANS =",
+    "man_MANS = twolame.1": "man_MANS =",
+}
+
+for old, new in replacements.items():
+    text = text.replace(old, new)
+
+if text != original:
+    p.write_text(text)
+    print("patched doc/Makefile manpage target: twolame.1")
+else:
+    print("ERROR: twolame.1 manpage target not found in doc/Makefile")
+    raise SystemExit(1)
+PY
+
+  if grep -nE '^(dist_man_MANS|man_MANS) = .*twolame\.1' "$doc_makefile"; then
+    fail_step "twolame.1 manpage target still exists after patch"
+    exit 1
+  fi
+
+  done_step "patch twolame Makefile documentation targets"
+}
 
 banner_start
 
-echo "==> Building $NAME (autotools)"
-echo "Source : $SRC_DIR"
-echo "Prefix : $PREFIX"
-echo "Log    : $LOG_FILE"
+kv "Build system" "autotools"
+kv "Source" "$SRC_DIR"
+kv "Build" "$BUILD_DIR"
+kv "Prefix" "$PREFIX"
+kv "Log" "$LOG_FILE"
 
-require_any_file "source directory not found or invalid" \
-  "$SRC_DIR/configure" \
-  "$SRC_DIR/configure.ac" \
-  "$SRC_DIR/configure.in" \
-  "$SRC_DIR/autogen.sh"
+if [ ! -d "$SRC_DIR" ]; then
+  fail_step "source directory not found: $SRC_DIR"
+  exit 1
+fi
 
 mkdir -p "$LOGS"
-cd "$SRC_DIR"
-
-step "clean previous build state"
-say "make distclean (ignore errors if tree is fresh)"
-make distclean >/dev/null 2>&1 || true
-say "make clean (ignore errors if tree is fresh)"
-make clean >/dev/null 2>&1 || true
-say "remove stale config.cache"
-rm -f config.cache
+rm -rf "$BUILD_DIR"
+mkdir -p "$BUILD_DIR"
 
 log_build_env "$LOG_FILE"
 
-step "prepare build system"
+cd "$SRC_DIR"
+
+step "Prepare configure script"
+
 if [ -f "configure" ]; then
-  say "configure already present, skipping autogen.sh"
+  say "configure already present, skipping autoreconf"
+elif [ -f "configure.ac" ] || [ -f "configure.in" ]; then
+  say "running autoreconf"
+  run_with_heartbeat "autoreconf $NAME" "$LOG_FILE" \
+    autoreconf -fi
 elif [ -f "autogen.sh" ]; then
   say "running autogen.sh"
-  PATH="$ORIGINAL_PATH" ./autogen.sh >> "$LOG_FILE" 2>&1
-  say "autogen.sh done"
-elif [ -f "configure.ac" ] || [ -f "configure.in" ]; then
-  say "running autoreconf -fi"
-  PATH="$ORIGINAL_PATH" autoreconf -fi >> "$LOG_FILE" 2>&1
-  say "autoreconf done"
+  run_with_heartbeat "autogen $NAME" "$LOG_FILE" \
+    ./autogen.sh
 else
   say "no autogen.sh/configure.ac found, skipping autoreconf"
 fi
 
+done_step "prepare configure script"
+
 require_file "./configure" "configure script not found"
 
-step "configuring static-only build"
+patch_twolame_asciidoc_check
+
+step "Configure static-only build"
 
 {
   echo "===== twolame configure command ====="
@@ -85,73 +157,38 @@ run_with_heartbeat "configure $NAME" "$LOG_FILE" \
 
 done_step "configure"
 
-step "running make for library only"
+patch_twolame_makefile_docs
+
+step "Build static library"
+
 run_with_heartbeat "build $NAME" "$LOG_FILE" \
-  make -C libtwolame \
-    CC="$CC" \
-    CFLAGS="$CFLAGS -std=gnu89" \
-    LDFLAGS="$LDFLAGS" \
-    libtwolame.la
+  make
+
 done_step "build"
 
-step "install static library manually"
-mkdir -p "$PREFIX/lib"
+step "Install static library"
 
-if [ -f "libtwolame/.libs/libtwolame.a" ]; then
-  cp -f "libtwolame/.libs/libtwolame.a" "$PREFIX/lib/"
-elif [ -f "libtwolame/libtwolame.a" ]; then
-  cp -f "libtwolame/libtwolame.a" "$PREFIX/lib/"
-else
-  echo "ERROR: built static library not found: libtwolame/.libs/libtwolame.a or libtwolame/libtwolame.a"
-  exit 1
-fi
-done_step "install static library manually"
+run_with_heartbeat "install $NAME" "$LOG_FILE" \
+  make install
 
-step "install headers"
-mkdir -p "$PREFIX/include"
-if [ -f "libtwolame/twolame.h" ]; then
-  cp -f "libtwolame/twolame.h" "$PREFIX/include/"
-elif [ -f "twolame.h" ]; then
-  cp -f "twolame.h" "$PREFIX/include/"
-else
-  echo "ERROR: twolame.h not found in source tree"
-  exit 1
-fi
-done_step "install headers"
+done_step "install"
 
-step "install pkg-config file"
-mkdir -p "$PREFIX/lib/pkgconfig"
+step "Remove .la residue"
 
-if [ -f "twolame.pc" ]; then
-  cp -f "twolame.pc" "$PC_FILE"
-elif [ -f "libtwolame/twolame.pc" ]; then
-  cp -f "libtwolame/twolame.pc" "$PC_FILE"
-else
-  cat > "$PC_FILE" <<EOF
-prefix=$PREFIX
-exec_prefix=\${prefix}
-libdir=\${exec_prefix}/lib
-includedir=\${prefix}/include
+remove_one_la "$PREFIX/lib/libtwolame.la"
 
-Name: twolame
-Description: MPEG Audio Layer 2 encoder
-Version: 0.4.0
-Libs: -L\${libdir} -ltwolame
-Cflags: -I\${includedir}
-EOF
-fi
-echo "==> $PC_FILE written"
-done_step "install pkg-config file"
+ensure_no_file "$PREFIX/lib/libtwolame.la" ".la residue still exists"
 
-remove_one_la "$LA_FILE"
+done_step "remove .la residue"
 
-step "verify installed files"
-find "$PREFIX/lib" -maxdepth 1 \( -name 'libtwolame*' -o -name 'twolame.pc' \) -print | sort
+step "Verify installed files"
+
+find "$PREFIX/lib" -maxdepth 1 \( -name 'libtwolame*' -o -name 'twolame.pc' -o -name 'libtwolame.la' \) -print | sort
 
 require_file "$PREFIX/lib/libtwolame.a" "static library not found"
 require_file "$PREFIX/include/twolame.h" "header not found"
-require_file "$PC_FILE" "pkg-config file not found"
-ensure_no_file "$LA_FILE" ".la residue still exists"
+require_file "$PREFIX/lib/pkgconfig/twolame.pc" "pkg-config file not found"
+ensure_no_file "$PREFIX/lib/libtwolame.la" ".la residue still exists"
 
 print_pkg_version twolame
 print_pkg_static_libs twolame
@@ -159,6 +196,6 @@ print_pkg_static_libs twolame
 begin_final_verify
 print_verified_file "$PREFIX/lib/libtwolame.a"
 print_verified_file "$PREFIX/include/twolame.h"
-print_verified_file "$PC_FILE"
+print_verified_file "$PREFIX/lib/pkgconfig/twolame.pc"
 
 banner_end
