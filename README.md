@@ -6,36 +6,38 @@ bash scripts/build-all-static.sh
 It is useful when you need to bundle these tools inside a macOS app.
 
 ## Quick start 
- - Open Terminal.
+- Open Terminal.
 
- - Install required build tools:
+- Install required build tools:
 
-  ```bash
-  brew install cmake meson ninja autoconf automake libtool pkg-config
-  ```
+```bash
+brew install cmake meson ninja autoconf automake libtool pkg-config
+```
 
- - Clone the repository: 
+- Clone the repository: 
 
- ```bash 
- git clone https://github.com/kiimelon/FFmpeg-arm-silicon.git  
- ```
+```bash 
+git clone https://github.com/kiimelon/FFmpeg-arm-silicon.git  
+```
 
- - Enter the project directory: 
+- Enter the project directory: 
 
- ```bash 
- cd FFmpeg-arm-silicon
- ```
+```bash 
+cd FFmpeg-arm-silicon
+```
 
- - Run the full build pipeline:  `bash scripts/build-all-static.sh `
- 
-    This command runs:
-    - Stage 1: Fetching dependency sources
-    - Stage 2: Building static dependencies
-    - Stage 3: Building FFmpeg suite
-    - Stage 4: Verifying static suite
-    - Stage 5: Exporting FFmpeg tools
+- Run the full build pipeline:  
 
- - When the build finishes, the exported tools will be available at: `Tools`
+```bash 
+bash scripts/build-all-static.sh 
+```
+This command runs:
+- Stage 1: Fetching dependency sources
+- Stage 2: Building static dependencies
+- Stage 3: Building FFmpeg suite
+- Stage 4: Verifying static suite
+- Stage 5: Exporting FFmpeg tools
+- When the build finishes, the exported tools will be available at: `Tools`
 
 ## Using the binaries in a macOS app
 
