@@ -59,8 +59,12 @@ fi
 require_file "./configure" "configure script not found"
 
 step "configuring static-only build"
+
+# twolame git builds may check asciidoc even with maintainer mode disabled.
+# We do not build documentation, so use ASCIIDOC=true as a no-op placeholder.
 run_with_heartbeat "configure $NAME" "$LOG_FILE" \
   env \
+    ASCIIDOC=true \
     PKG_CONFIG="$PKG_CONFIG_BIN" \
     PKG_CONFIG_PATH="$PKG_CONFIG_PATH" \
     PKG_CONFIG_LIBDIR="$PKG_CONFIG_LIBDIR" \
@@ -73,6 +77,7 @@ run_with_heartbeat "configure $NAME" "$LOG_FILE" \
       --disable-shared \
       --disable-frontend \
       --disable-maintainer-mode
+
 done_step "configure"
 
 step "running make for library only"
