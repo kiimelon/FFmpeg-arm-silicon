@@ -1,68 +1,95 @@
-# FFmpeg-arm-silicon
+## What this project does 
+This repository builds `ffmpeg`, `ffprobe`, and `ffplay` for Apple Silicon macOS with one command: 
+```bash
+bash scripts/build-all-static.sh
+``` 
+It is useful when you need to bundle these tools inside a macOS app.
 
-[Evermeet](https://evermeet.cx/ffmpeg/) is a useful reference for prebuilt FFmpeg binaries, but its main page is currently focused on macOS 64-bit Intel builds. That is part of why I started this project.
+## Quick start 
+ - Open Terminal.
 
-I wanted a source-based FFmpeg build, and a cleaner, easier way to build FFmpeg locally on Apple Silicon.
+ - Install required build tools:
 
-The long-term goal of this project is to provide directly usable FFmpeg binaries for Apple Silicon. It is not there yet, but that is the direction.
+  ```bash
+  brew install cmake meson ninja autoconf automake libtool pkg-config
+  ```
 
-For now, this project can already serve as a practical reference for anyone who wants to see how FFmpeg is being built step by step on Apple Silicon.
+ - Clone the repository: 
 
-At the moment, this project targets **macOS 11.0+ on Apple Silicon** and is being tested through repeated clean builds on my own machines.
+ ```bash 
+ git clone https://github.com/kiimelon/FFmpeg-arm-silicon.git  
+ ```
 
+ - Enter the project directory: 
 
-## Current Progress
+ ```bash 
+ cd FFmpeg-arm-silicon
+ ```
 
-- Stage 1: initialization ✅  
-  the repository structure is set up, the shared build environment is ready, and dependency sources can be fetched into the project
+ - Run the full build pipeline:  `bash scripts/build-all-static.sh `
+ 
+    This command runs:
+    - Stage 1: Fetching dependency sources
+    - Stage 2: Building static dependencies
+    - Stage 3: Building FFmpeg suite
+    - Stage 4: Verifying static suite
+    - Stage 5: Exporting FFmpeg tools
 
-- Stage 2: dependency build system ✅  
-  dependency scripts are in place, libraries can be built into the local prefix, and the current dependency set has been tested successfully on Apple Silicon
+ - When the build finishes, the exported tools will be available at: `Tools`
 
-## Project Structure
+## Using the binaries in a macOS app
 
-- `scripts/env.sh` — shared build environment
-- `scripts/fetch-deps-git.sh` — fetch dependency source repositories
-- `scripts/build-deps.sh` — dependency build controller
-- `scripts/build-deps/` — per-library build scripts
-- `src/` — third-party source trees *
-- `build/` — temporary build output *
--  `local/` — local install prefix *
-- `logs/` — build logs *
+After building, copy or drag the `Tools` folder into your Xcode project.
 
-\* local-only directories, not committed to the repository
+In Swift, you can locate a tool like this:
+
+```swift
+guard let ffmpegPath = Bundle.main.path(
+    forResource: "ffmpeg",
+    ofType: nil,
+    inDirectory: "Tools"
+) else {
+    fatalError("ffmpeg not found in Tools")
+}
+```
+
 
 ## Dependency Groups (currently)
 
 | Group | Libraries * |
 |---|---|
-| SDL | `sdl2` |
+| Support libs | `zlib`, `bzip2`, `brotli`, `snappy` |
+| Audio chain | `libogg`, `opus`, `libvorbis`, `lame`, `twolame`, `libsoxr` |
+| Video chain | `dav1d`, `x264`, `x265`, `libvpx`, `libtheora` |
 | Subtitle chain | `freetype`, `fribidi`, `harfbuzz`, `libass` |
-| Video chain | `x264`, `x265`, `libvpx`, `dav1d` |
-| Audio chain | `ogg`, `opus`, `vorbis`, `lame` |
-| Image and media extras | `libwebp`, `openjpeg`, `libtheora` |
-| Audio and resampling extras | `twolame`, `libsoxr` |
-| Utility and support libs | `snappy`, `zimg`, `libxml2`, `libzmq` |
+| Image / video processing chain | `libwebp`, `openjpeg`, `zimg` |
+| Utility / integration libs | `libxml2`, `libzmq` |
+| Player / UI | `sdl2` |
 
 \* Third-party libraries fetched by the build scripts keep their own licenses.
 
-## Build Notes
 
-### Fixed
+## Planned Dependency Expansion
 
-- `libvpx`: `install_name` is fixed after install on macOS
-- `lame`: `libmp3lame.pc` is generated manually because upstream install does not provide it
-- `opus`: ARM assembly is disabled on Apple Silicon builds
-- `libtheora`: ARM assembly is disabled on Apple Silicon builds
-- `libsoxr`: CMake policy compatibility is set for newer CMake versions
+## Planned Dependency Expansion
 
-### Known Issues
-
-- `twolame`: behavior may differ depending on the source tree state
-- `zimg`: submodules must be initialized correctly on a clean source tree
-
-### To Verify
-
-- full dependency reproducibility across both Apple Silicon machines
-- clean-tree reproducibility for `twolame`
-- clean-tree reproducibility for `zimg`
+| Library | Purpose |
+|---|---|
+| `aom` | AV1 encoding support |
+| `vmaf` | Video quality analysis |
+| `xvid` | MPEG-4 Part 2 encoding support |
+| `speex` | Speech codec support |
+| `gsm` | GSM audio codec support |
+| `opencore-amr` | AMR-NB / AMR-WB support |
+| `vo-amrwbenc` | AMR-WB encoder support |
+| `shine` | Lightweight MP3 encoder |
+| `rubberband` | Time-stretching and pitch-shifting |
+| `mysofa` | HRTF / spatial audio filter support |
+| `modplug` | Tracker module format support |
+| `bluray` | Blu-ray structure reading support |
+| `zvbi` | Teletext / VBI support |
+| `fontconfig` | Font discovery for subtitle rendering |
+| `vidstab` | Video stabilization filters |
+| `openh264` | H.264 codec support |
+| `xavs` | AVS video codec support |
+| `avisynth` | Avisynth input support |
