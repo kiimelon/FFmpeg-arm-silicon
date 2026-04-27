@@ -29,11 +29,11 @@ count = text.count(old)
 print(f"asciidoc hard error matches: {count}")
 
 if count == 0:
-    raise SystemExit("ERROR: asciidoc maintainer hard error not found in configure")
-
-text = text.replace(old, new)
-p.write_text(text)
-print("patched configure asciidoc maintainer check")
+    print("asciidoc maintainer hard error not found, skip patch")
+else:
+    text = text.replace(old, new)
+    p.write_text(text)
+    print("patched configure asciidoc maintainer check")
 PY
 
   if grep -n 'as_fn_error.*asciidoc is not available and maintainer mode is enabled' ./configure; then
@@ -41,9 +41,10 @@ PY
     exit 1
   fi
 
-  if ! grep -n "bypassed for static library build" ./configure >> "$LOG_FILE"; then
-    fail_step "twolame asciidoc bypass marker not found after patch"
-    exit 1
+  if grep -n "bypassed for static library build" ./configure >> "$LOG_FILE"; then
+    say "twolame asciidoc bypass marker found"
+  else
+    say "twolame asciidoc bypass marker not found; patch was not needed"
   fi
 
   done_step "patch twolame asciidoc maintainer check"
